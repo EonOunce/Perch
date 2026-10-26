@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>栖迟 Perch · 桌面卡片交互原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-perch" viewBox="0 0 24 24">
+      <path d="M3.4 18.4c4.9 0 7.9-2.2 9.7-5.7"/>
+      <path d="M8.2 20.1c3.7 0 6.8-1.9 8.8-5.3"/>
+      <circle cx="16.8" cy="7.2" r="2.2"/>
+      <path d="M18.7 7.4c1.6.1 2.7 1 3.5 2.4-1.4.4-2.7.1-3.8-.7"/>
+      <circle cx="17.5" cy="6.7" r=".28" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-book" viewBox="0 0 24 24">
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z"/>
+      <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z"/>
+    </symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.3 4.3L19 7.5"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24">
+      <path d="M4 20l4.3-1L19 8.3a2.1 2.1 0 0 0-3-3L5.3 16 4 20Z"/>
+      <path d="m13.7 7.6 3 3"/>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24">
+      <path d="M4 7h16M9 7V4.8h6V7M6.8 7l1 13h8.4l1-13M10 11v5.5M14 11v5.5"/>
+    </symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24">
+      <path d="M4 8h16M6 8V5.6A1.6 1.6 0 0 1 7.6 4h8.8A1.6 1.6 0 0 1 18 5.6V8M5.6 8v10.4A1.6 1.6 0 0 0 7.2 20h9.6a1.6 1.6 0 0 0 1.6-1.6V8M10 12h4"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.5 4.5"/>
+    </symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24">
+      <path d="M20 4c-8.2 0-13.2 4-13.2 10A5.8 5.8 0 0 0 12.6 20C18.6 20 20 10.9 20 4Z"/>
+      <path d="M4 20c2.7-5.8 6.7-9 11.8-11"/>
+    </symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24">
+      <rect x="3" y="4.5" width="18" height="12.5" rx="2"/><path d="M8.5 21h7M12 17v4"/>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M4.2 11.7a8 8 0 0 1 13.6-5.6L20 8.3"/><path d="M20 4v4.3h-4.3"/>
+      <path d="M19.8 12.3a8 8 0 0 1-13.6 5.6L4 15.7"/><path d="M4 20v-4.3h4.3"/>
+    </symbol>
+    <symbol id="i-export" viewBox="0 0 24 24">
+      <path d="M12 3.5v11M7.5 10 12 14.5 16.5 10M5 19.5h14"/>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M3.2 6.5h6l2 2h9.6v9.3a1.7 1.7 0 0 1-1.7 1.7H4.9a1.7 1.7 0 0 1-1.7-1.7V6.5Z"/>
+    </symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24">
+      <path d="M6.5 3h7l4 4v14h-11V3Z"/><path d="M13.5 3v4.5h4M9.5 12h5M9.5 16h5"/>
+    </symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24">
+      <path d="M3.5 9.2a13 13 0 0 1 17 0M6.7 12.5a8.4 8.4 0 0 1 10.6 0M9.9 15.8a3.8 3.8 0 0 1 4.2 0"/>
+      <circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24">
+      <path d="M4 9.5h3.5L12 5.8v12.4L7.5 14.5H4V9.5Z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/>
+    </symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.87 2.87-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06-2.87-2.87.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.87l-.06-.06 2.87-2.87.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06 2.87 2.87-.06.06A1.7 1.7 0 0 0 19.4 9c.3.28.48.66.52 1.1h.08v4h-.1a1.7 1.7 0 0 0-.5.9Z"/>
+    </symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24">
+      <path d="M4 4h7.2L20 12.8 12.8 20 4 11.2V4Z"/><circle cx="8.3" cy="8.3" r="1.2"/>
+    </symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+    </symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.4"/>
+      <circle cx="12" cy="7.7" r=".9" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24">
+      <path d="M9.5 7.5 5 12l4.5 4.5"/><path d="M5 12h8.2a5.2 5.2 0 0 1 5.2 5.2V19"/>
+    </symbol>
+  </svg>
+
+  <div class="desktop" id="desktop">
+    <svg class="wallpaper-art" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="skyGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ccd6cb"/>
+          <stop offset=".44" stop-color="#e5ded1"/>
+          <stop offset="1" stop-color="#dbc6ad"/>
+        </linearGradient>
+        <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0" stop-color="#f8ead0" stop-opacity=".95"/>
+          <stop offset=".42" stop-color="#f1dcbc" stop-opacity=".5"/>
+          <stop offset="1" stop-color="#f1dcbc" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="farRidge" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#c6cebd"/><stop offset="1" stop-color="#b9c3b4"/>
+        </linearGradient>
+        <linearGradient id="midRidge" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#adbba6"/><stop offset="1" stop-color="#a2b09d"/>
+        </linearGradient>
+        <linearGradient id="nearRidge" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#8fa088"/><stop offset="1" stop-color="#7d907a"/>
+        </linearGradient>
+        <filter id="softMist"><feGaussianBlur stdDeviation="18"/></filter>
+      </defs>
+      <rect width="1600" height="1000" fill="url(#skyGradient)"/>
+      <circle cx="1160" cy="236" r="390" fill="url(#sunGlow)"/>
+      <circle cx="1160" cy="236" r="72" fill="#f7ead2" opacity=".68"/>
+      <g fill="none" stroke="#5f675b" stroke-width="2.2" stroke-linecap="round" opacity=".23">
+        <path d="M944 254q11-11 22 0M966 254q11-11 22 0"/>
+        <path d="M1030 302q9-9 18 0M1048 302q9-9 18 0"/>
+        <path d="M890 336q8-8 16 0M906 336q8-8 16 0"/>
+      </g>
+      <path d="M0 616C240 534 466 590 744 574c300-17 470 44 856-32v458H0Z" fill="url(#farRidge)" opacity=".72"/>
+      <path d="M0 708c277-82 512-26 806-54 289-28 524 52 794-12v358H0Z" fill="url(#midRidge)" opacity=".72"/>
+      <path d="M0 822c290-70 548-34 852-60 276-24 496 34 748-4v242H0Z" fill="url(#nearRidge)" opacity=".62"/>
+      <ellipse cx="460" cy="772" rx="560" ry="34" fill="#f6ecdc" opacity=".24" filter="url(#softMist)"/>
+      <ellipse cx="1270" cy="680" rx="460" ry="28" fill="#f4e8d5" opacity=".2" filter="url(#softMist)"/>
+      <path d="M0 918c318-35 610 12 930-7 234-14 452 14 670-2v91H0Z" fill="#6f826e" opacity=".26"/>
+    </svg>
+    <div class="wallpaper-grain" aria-hidden="true"></div>
+
+    <header class="demo-bar">
+      <div class="demo-ident">
+        <span class="demo-badge">演示</span>
+        <span class="demo-title">桌面环境 · 栖迟卡片原型</span>
+        <span class="demo-sep" aria-hidden="true"></span>
+        <span class="demo-date">固定日期 10月22日 周四</span>
+      </div>
+      <div class="demo-actions">
+        <button class="demo-btn" id="appToggle" type="button" aria-pressed="false" title="打开一个普通应用窗口，观察卡片被正常盖住">
+          <svg class="icon"><use href="#i-monitor"/></svg>
+          <span id="appToggleText">模拟应用盖住</span>
+        </button>
+        <button class="demo-btn demo-btn-primary" id="quickToggle" type="button" title="打开快速记录（Ctrl+Alt+N）">
+          <svg class="icon"><use href="#i-pencil"/></svg>
+          <span>快速记录</span>
+          <span class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Alt</kbd><span>+</span><kbd>N</kbd></span>
+        </button>
+        <button class="demo-round" id="resetDemo" type="button" title="重置演示：位置、折叠状态与临时修改" aria-label="重置演示">
+          <svg class="icon"><use href="#i-refresh"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="desktop-icons" aria-label="桌面图标">
+      <div class="desk-icon" aria-hidden="true">
+        <span class="desk-glyph desk-glyph-folder"><svg class="icon"><use href="#i-folder"/></svg></span>
+        <span>此电脑</span>
+      </div>
+      <button class="desk-icon desk-app-icon" id="deskApp" type="button" title="打开教案窗口，观察卡片被盖住">
+        <span class="desk-glyph desk-glyph-doc"><svg class="icon"><use href="#i-doc"/></svg></span>
+        <span>第 8 周教案</span>
+      </button>
+    </div>
+
+    <main class="card" id="card" data-view="today" aria-label="栖迟桌面卡片">
+      <section class="card-head" id="cardHead">
+        <button class="brand" id="brandToggle" type="button" title="折叠卡片" aria-label="折叠卡片">
+          <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
+          <span class="brand-cn">栖迟</span>
+        </button>
+        <div class="head-actions">
+          <button class="icon-btn" id="aboutBtn" type="button" title="关于栖迟" aria-label="关于栖迟">
+            <svg class="icon"><use href="#i-info"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="mini-shell" id="miniBar" hidden aria-label="折叠的栖迟卡片">
+        <div class="mini-bar" id="miniBarHead">
+          <button class="mini-main" id="miniExpand" type="button" title="展开卡片" aria-label="展开卡片">
+            <span class="mini-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
+            <span class="mini-text">
+              <span class="mini-date" id="miniDate">10月22日 · 周四</span>
+              <span class="mini-status" id="miniStatus">2 件待确认</span>
+            </span>
+          </button>
+          <button class="icon-btn mini-quick" id="miniQuick" type="button" title="快速记录" aria-label="快速记录">
+            <svg class="icon"><use href="#i-pencil"/></svg>
+          </button>
+          <button class="icon-btn" id="miniFold" type="button" title="收起长条" aria-label="收起长条">
+            <svg class="icon"><use href="#i-chevron-up"/></svg>
+          </button>
+        </div>
+          <div class="strip" id="strip"></div>
+      </section>
+
+      <nav class="tabs" id="tabs" role="tablist" aria-label="栖迟视图">
+        <button class="tab is-active" id="tabToday" role="tab" type="button" data-view="today" aria-selected="true" aria-controls="viewToday">今天</button>
+        <button class="tab" id="tabRecords" role="tab" type="button" data-view="records" aria-selected="false" aria-controls="viewRecords">记录</button>
+        <button class="tab" id="tabStats" role="tab" type="button" data-view="stats" aria-selected="false" aria-controls="viewStats">统计</button>
+      </nav>
+
+      <div class="card-body">
+        <section class="view view-today" id="viewToday" role="tabpanel" aria-labelledby="tabToday">
+          <div class="scroll today-scroll" id="todayScroll">
+            <header class="date-block">
+              <p class="date-eyebrow" id="dateEyebrow">周四 · 第 43 周</p>
+              <h1 class="date-title" id="dateTitle">10月22日</h1>
+            </header>
+
+            <section class="today-section review-zone" id="reviewZone" aria-live="polite"></section>
+
+            <section class="today-section">
+              <div class="section-head">
+                <h2>习惯</h2>
+                <button class="section-action" id="manageHabits" type="button">
+                  <svg class="icon"><use href="#i-gear"/></svg><span>管理</span>
+                </button>
+              </div>
+              <div id="todayHabit"></div>
+            </section>
+
+            <section class="today-section">
+              <div class="section-head">
+                <h2>心情</h2>
+              </div>
+              <div class="mood-scale" id="moodScale">
+                <div class="mood-scale-head">
+                  <span class="mood-face-lg" id="moodFace"></span>
+                  <div class="mood-readout">
+                    <span class="mood-name" id="moodName">今天还没记</span>
+                    <span class="mood-value" id="moodValue">—</span>
+                  </div>
+                </div>
+                <div class="mood-slider-wrap">
+                  <input type="range" id="moodSlider" min="0" max="100" step="1" value="50" aria-label="今天的心情，0 到 100 百分比">
+                </div>
+              </div>
+            </section>
+
+            <section class="today-section">
+              <div class="section-head">
+                <h2>碎碎念</h2>
+              </div>
+              <div class="compose" id="inlineCompose">
+                <textarea id="inlineInput" rows="2" placeholder="写下一句，今天的、刚才的，都可以。"></textarea>
+                <div class="compose-foot">
+                  <div class="tag-preview" id="inlineTagPreview" aria-live="polite"></div>
+                  <button class="soft-btn" id="inlineSave" type="button" disabled>记下</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="today-section today-notes-section">
+              <div class="section-head">
+                <h2>记录</h2>
+                <span class="section-note" id="todayCount">0 条</span>
+                <button class="section-action" id="goRecords" type="button"><span>全部</span></button>
+              </div>
+              <div class="today-notes" id="todayNotes"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view view-records" id="viewRecords" role="tabpanel" aria-labelledby="tabRecords" hidden>
+          <div class="records-toolbar">
+            <div class="records-search-row">
+              <label class="search-box">
+                <svg class="icon"><use href="#i-search"/></svg>
+                <input id="recordSearch" type="search" placeholder="搜索记录或 #标签" autocomplete="off" aria-label="搜索记录">
+              </label>
+              <button class="primary-btn" id="recordsQuick" type="button" title="打开快速记录（Ctrl+Alt+N）">记一条</button>
+            </div>
+            <div class="tag-filter" id="tagFilter" role="group" aria-label="按标签筛选"></div>
+            <div class="records-meta" id="recordsMeta">
+              <span id="resultCount">全部记录</span>
+              <button class="text-btn" id="clearFilters" type="button" hidden>清除筛选</button>
+            </div>
+          </div>
+          <div class="scroll records-scroll" id="recordsScroll">
+            <div class="record-list" id="recordList"></div>
+          </div>
+        </section>
+
+        <section class="view view-stats" id="viewStats" role="tabpanel" aria-labelledby="tabStats" hidden>
+          <div class="scroll stats-scroll" id="statsScroll">
+            <div class="stats-controls">
+              <div class="habit-scope" id="habitScope" role="group" aria-label="统计的习惯范围"></div>
+              <div class="range-tabs" id="rangeTabs" role="group" aria-label="统计时间范围">
+                <button type="button" class="range-tab" data-range="7">7 天</button>
+                <button type="button" class="range-tab" data-range="30">30 天</button>
+                <button type="button" class="range-tab is-active" data-range="90">90 天</button>
+                <button type="button" class="range-tab" data-range="month">本月</button>
+                <button type="button" class="range-tab" data-range="lastMonth">上月</button>
+                <button type="button" class="range-tab" data-range="custom">自定义</button>
+              </div>
+              <div class="range-meta">
+                <span class="range-caption" id="rangeCaption">7月25日 – 10月22日 · 90 天</span>
+                <label class="switch-label" id="proControl" for="proToggle">
+                  <span>专业视图</span>
+                  <input id="proToggle" type="checkbox">
+                  <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
+                </label>
+              </div>
+              <div class="custom-range" id="customRange" hidden>
+                <label><span>从</span><input type="date" id="rangeStart" min="2026-07-01" max="2026-10-22" value="2026-09-01"></label>
+                <span class="range-dash">–</span>
+                <label><span>到</span><input type="date" id="rangeEnd" min="2026-07-01" max="2026-10-22" value="2026-10-22"></label>
+                <button class="mini-btn" id="applyRange" type="button">应用</button>
+                <p class="range-error" id="rangeError" aria-live="polite"></p>
+              </div>
+            </div>
+            <div id="statsBody">
+              <section class="panel hero-panel" id="habitSummary"></section>
+              <section class="panel pro-panel" id="proPanel" hidden></section>
+              <section class="panel" id="heatmapPanel"></section>
+              <section class="panel" id="volumePanel"></section>
+              <section class="panel" id="moodPanel"></section>
+              <section class="panel" id="tagsPanel"></section>
+              <section class="panel week-review-panel" id="weekReviewPanel"></section>
+            </div>
+          </div>
+        </section>
+        <span class="scroll-fade" aria-hidden="true"></span>
+      </div>
+    </main>
+
+    <section class="app-window" id="appWindow" hidden aria-label="模拟的其他应用窗口">
+      <header class="app-titlebar">
+        <span class="app-title-icon"><svg class="icon"><use href="#i-doc"/></svg></span>
+        <span class="app-title">第 8 周教案 · 认识钟面.docx</span>
+        <div class="window-controls">
+          <span class="win-ctrl" aria-hidden="true">–</span>
+          <span class="win-ctrl" aria-hidden="true">□</span>
+          <button class="win-close" id="closeApp" type="button" aria-label="关闭示例应用">×</button>
+        </div>
+      </header>
+      <div class="app-document">
+        <div class="doc-page">
+          <p class="doc-kicker">生活数学 · 培智四年级</p>
+          <h2>认识钟面（整点）</h2>
+          <p class="doc-meta">第 8 周 · 周四 · 40 分钟</p>
+          <div class="doc-rule"></div>
+          <div class="doc-grid">
+            <div>
+              <h3>教学目标</h3>
+              <ol>
+                <li>能在钟面上指出时针和分针。</li>
+                <li>能配对三个整点时刻。</li>
+                <li>在提示卡支持下完成 3 次独立配对。</li>
+              </ol>
+              <h3>支持策略</h3>
+              <p>先示范、再共同完成、最后独立完成；使用视觉提示卡与计时器，提示逐步撤除。</p>
+            </div>
+            <div class="clock-card" aria-hidden="true">
+              <svg viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" fill="#fbf7ee" stroke="#a2ad9a" stroke-width="3"/>
+                <circle cx="60" cy="60" r="3.5" fill="#596455"/>
+                <path d="M60 60V30" stroke="#596455" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 60l20 10" stroke="#b38c5e" stroke-width="4" stroke-linecap="round"/>
+                <g fill="#596455" font-size="9" text-anchor="middle" font-family="Segoe UI, sans-serif">
+                  <text x="60" y="25">12</text><text x="60" y="101">6</text><text x="23" y="63">9</text><text x="97" y="63">3</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+          <h3>活动流程</h3>
+          <div class="doc-steps">
+            <p><span>01</span> 看一看：观察钟面，指认时针与分针。</p>
+            <p><span>02</span> 配一配：把三个整点卡片放到对应钟面旁。</p>
+            <p><span>03</span> 说一说：用“现在是几点”完整表达一次。</p>
+            <p><span>04</span> 收一收：把教具放回盒子，明天继续。</p>
+          </div>
+          <p class="doc-saved">已保存 · 09:37</p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="taskbar" aria-label="模拟 Windows 任务栏">
+      <div class="tb-left">
+        <span class="start-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="tb-search" aria-hidden="true"><svg class="icon"><use href="#i-search"/></svg><span>搜索</span></span>
+      </div>
+      <div class="tb-center" aria-hidden="true">
+        <span class="tb-app"><svg class="icon"><use href="#i-folder"/></svg></span>
+        <span class="tb-app tb-app-active"><svg class="icon"><use href="#i-doc"/></svg></span>
+        <span class="tb-app"><svg class="icon"><use href="#i-gear"/></svg></span>
+      </div>
+      <div class="tb-right">
+        <button class="tray-perch" id="trayPerch" type="button" aria-pressed="true" title="栖迟：显示 / 隐藏卡片">
+          <svg class="icon"><use href="#i-perch"/></svg>
+        </button>
+        <span class="tray-icon" aria-hidden="true"><svg class="icon"><use href="#i-wifi"/></svg></span>
+        <span class="tray-icon" aria-hidden="true"><svg class="icon"><use href="#i-volume"/></svg></span>
+        <span class="tb-clock"><span>09:41</span><span>2026/10/22</span></span>
+      </div>
+    </footer>
+
+    <div class="modal-layer" id="quickLayer" hidden>
+      <div class="modal-scrim" data-close-quick></div>
+      <section class="quick-window" role="dialog" aria-modal="true" aria-labelledby="quickTitle">
+        <header class="quick-head">
+          <div>
+            <span class="topmost-mark"><span></span>临时置顶</span>
+            <h2 id="quickTitle">快速记录</h2>
+          </div>
+          <button class="icon-btn" type="button" data-close-quick aria-label="关闭快速记录">
+            <svg class="icon"><use href="#i-x"/></svg>
+          </button>
+        </header>
+        <textarea id="quickInput" rows="4" placeholder="写下一句。可以带上 #标签，也可以什么都不想。"></textarea>
+        <div class="quick-preview" id="quickPreview"></div>
+        <footer class="quick-foot">
+          <span class="key-hint"><kbd>Enter</kbd> 保存 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行 · <kbd>Esc</kbd> 关闭</span>
+          <button class="primary-btn" id="quickSave" type="button" disabled>记下</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="modal-layer" id="editLayer" hidden>
+      <div class="modal-scrim" data-close-edit></div>
+      <section class="edit-window" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+        <header class="quick-head">
+          <div>
+            <span class="modal-kicker">保留原来的时间</span>
+            <h2 id="editTitle">编辑记录</h2>
+          </div>
+          <button class="icon-btn" type="button" data-close-edit aria-label="关闭编辑">
+            <svg class="icon"><use href="#i-x"/></svg>
+          </button>
+        </header>
+        <p class="edit-meta" id="editMeta"></p>
+        <textarea id="editInput" rows="6"></textarea>
+        <footer class="edit-foot">
+          <button class="ghost-btn" type="button" data-close-edit>取消</button>
+          <button class="primary-btn" id="editSave" type="button">保存</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="modal-layer" id="habitLayer" hidden>
+      <div class="modal-scrim" data-close-habits></div>
+      <section class="habit-window" role="dialog" aria-modal="true" aria-labelledby="habitTitle">
+        <header class="quick-head">
+          <div>
+            <span class="modal-kicker">习惯</span>
+            <h2 id="habitTitle">管理习惯</h2>
+          </div>
+          <button class="icon-btn" type="button" data-close-habits aria-label="关闭习惯管理">
+            <svg class="icon"><use href="#i-x"/></svg>
+          </button>
+        </header>
+        <div class="habit-manager" id="habitManager"></div>
+      </section>
+    </div>
+
+    <div class="modal-layer" id="aboutLayer" hidden>
+      <div class="modal-scrim" data-close-about></div>
+      <section class="about-window" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+        <header class="about-head">
+          <div class="about-brand">
+            <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
+            <div>
+              <span class="modal-kicker">关于</span>
+              <h2 id="aboutTitle">栖迟 Perch</h2>
+            </div>
+          </div>
+          <button class="icon-btn" type="button" data-close-about aria-label="关闭关于栖迟">
+            <svg class="icon"><use href="#i-x"/></svg>
+          </button>
+        </header>
+        <div class="about-scroll" id="aboutScroll">
+          <p class="about-lede">一张留在桌面上的记录卡。习惯、心情、碎碎念和回顾都在这里；不催促，也不评判。</p>
+
+          <section class="about-section" id="about-record">
+            <h3>记录与确认</h3>
+            <p>一天从 04:00 开始。04:00 前写下的记录和确认，归入前一天。</p>
+            <p>阅读这类习惯在次日早晨确认，避免晚上提前替自己下结论。确认前保持「未确认」，不计为失败，也不补零。</p>
+            <p>也可以把习惯设为当天确认，适合散步、伸展这类当下就能知道结果的事。修改一条记录会保留原来的日期和时间。</p>
+          </section>
+
+          <section class="about-section" id="about-habits">
+            <h3>习惯与目标</h3>
+            <p>在「习惯」区块右侧的「管理」里可以新增或修改习惯。名称、一句定义、单位、确认时机、每周目标和 if–then 都可以改。</p>
+            <p>每周目标填 0 表示只记录、不设目标。目标修改从下一个周一起生效，过去几周的目标和完成率不会被重写。所有目标都可以按自己的情况调整，没有连续打卡要求，也没有惩罚色。</p>
+            <p>if–then 是给自己的启动线索，例如「如果洗完澡，就把书放到枕边」。</p>
+            <p>不想记了有两个出口，都在「管理」里。<strong>移除</strong>只需要一次确认，之后这个习惯和它的打卡记录从所有地方消失，统计也不再显示，无法恢复。<strong>归档</strong>把它放进列表下方的归档区：今天页和习惯范围里不再出现，也不能再补记历史，但每一行都有一个「统计」开关，决定它的历史数据是否继续参与统计，默认打开。归档可以随时恢复。</p>
+          </section>
+
+          <section class="about-section" id="about-mood">
+            <h3>心情</h3>
+            <p>每天一次，0–100 的滑杆。松手后自动记下，可以随时重拉覆盖。五个区间只是给感受一个名字，不改变你选的数值：</p>
+            <div class="about-bands">
+              <span><i style="background:var(--mood-1)"></i>0–19 很低落</span>
+              <span><i style="background:var(--mood-2)"></i>20–39 有点低</span>
+              <span><i style="background:var(--mood-3)"></i>40–59 一般</span>
+              <span><i style="background:var(--mood-4)"></i>60–79 不错</span>
+              <span><i style="background:var(--mood-5)"></i>80–100 很好</span>
+            </div>
+            <p>心情是自我报告，没有标准答案；它不会反过来评价习惯完成得好不好。</p>
+          </section>
+
+          <section class="about-section" id="about-stats">
+            <h3>统计口径</h3>
+            <p>完成率 = 完成 ÷（完成 + 没做 + 未确认）。未确认的日子留在分母里，所以「确认」不只是为了好看，它会实实在在抬升完成率。分母只算到昨天为止，今天和还没到的日子不参与。</p>
+            <p>热力图一格一天：当天该做的都完成了最深，完成一部分居中，一件都没完成最浅。只有描边、没有填充的是「还没确认」——那天已经过去了，但你还没说做没做。没到的日子和习惯还没开始的日子留空。选「全部习惯」时按当天所有习惯合起来算，选单个习惯时只看它自己。下方每个习惯单独一行，一格一周。记录量柱高只表示写下的条数，写得少不等于做得少。</p>
+            <p>完成日与没做日的心情对比，只在两组各至少 4 天时显示；它是描述性的，不代表因果。次日确认的习惯，不把今天算作未确认。</p>
+          </section>
+
+          <section class="about-section" id="about-markers">
+            <h3>标记与分段对比</h3>
+            <p>专业视图里的竖线是「标记」：你主动记下“从这天起我改了什么”，比如换回纸质书、把阅读挪到早上。系统不会自动划段，也不猜你在哪个阶段。</p>
+            <p>标记把时间轴切成几段，各段只算周完成率的平均值，放在一起比较。它回答“这次改动之后有没有不一样”，不回答“为什么”。</p>
+            <p>只有你确实做过一次有意识的调整时才值得加标记。没有标记，这里就是一条连续的线，那同样是有效信息。</p>
+            <p>分段只对单个习惯开放：习惯范围选「全部」时开关会变灰。把几个习惯混在一起，「改了做法」到底改的是哪个就说不清了。</p>
+            <p>本演示中，阅读有两条标记（8/3 改成洗完澡就读、10/6 换回纸质书），散步有一条（9/14 晚饭后立刻换鞋）。</p>
+          </section>
+
+          <section class="about-section" id="about-review">
+            <h3>每周回顾</h3>
+            <p>每周回顾在统计页底部，按固定规则组合当周数据，不调用 AI，也不做推断。它可以导出为 Markdown，内容只包括完成、目标差距、记录量、标签和心情，不给出诊断或建议。</p>
+          </section>
+
+          <section class="about-section" id="about-sync">
+            <h3>同步与隐私</h3>
+            <p>同步目标为坚果云 WebDAV，内容以明文保存，这是有意选择的「简单优先」。栖迟不做客户端加密，也不会在界面或文档里声称加密。</p>
+            <p>坚果云应用专用密码只保存在本机：Windows 使用 DPAPI，Android 使用 Keystore，且不会同步到云端。同步采用本地优先，没有网络时照常记录，恢复连接后再合并；冲突会保留副本。</p>
+          </section>
+
+          <section class="about-section" id="about-quick">
+            <h3>桌面层与快速记录</h3>
+            <p>卡片贴在桌面层，不是永久置顶；普通应用会正常盖住它，点托盘图标可以临时提到前台。Ctrl+Alt+N 打开快速记录，Enter 保存，Shift+Enter 换行，Esc 关闭。</p>
+            <p>折叠后只剩顶部一条日期栏，下面垂着竖向长条：待确认的习惯直接在长条里点掉，打过卡的那一行会裁成一窄条，留「已打卡」和撤销。</p>
+            <p>折叠和展开点的是同一个地方：顶栏的图标和它旁边的文字整块可点，点一下折叠；折叠后点日期栏上那一块再展开。折叠态右上角的按钮只负责收起或展开下面的长条，不参与折叠。顶栏其余空白处按住即可拖动卡片，挪过 4 像素以上才算拖动，不会误触。</p>
+          </section>
+
+          <section class="about-section" id="about-demo">
+            <h3>演示说明</h3>
+            <p>这是交互原型，固定演示日期为 2026 年 10 月 22 日（周四），业务数据是内置假数据，刷新会重置；窗口位置、折叠状态和开机自启选项使用 localStorage 记忆。未接入真实托盘、系统通知、Windows 桌面层、同步或 AI。正式实现以 DESIGN.md 与后续 ADR 为准。</p>
+          </section>
+        </div>
+        <footer class="about-foot">栖迟 Perch · 交互原型 v0.4 · 2026-10-27</footer>
+      </section>
+    </div>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
