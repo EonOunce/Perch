@@ -11,6 +11,9 @@ target/
 data/
 *.local.json
 
+# spike 期间抓屏留下的证据：可能拍到桌面上其他窗口，不入库
+spike/*.png
+
 # 编辑器与系统
 .vs/
 .vscode/
