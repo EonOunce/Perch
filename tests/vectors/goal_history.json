@@ -1,0 +1,107 @@
+{
+  "name": "目标历史的生效规则",
+  "note": "goalHistory 按 effectiveFrom 生效，改目标是追加一条而不是覆盖；习惯上的 targetMode/weeklyTarget 必须等于最后一项。查的日期比最早一条还早时只给当前值，生效日留空。",
+  "data": {
+    "schemaVersion": 1,
+    "deviceId": "pc-windows",
+    "habits": [
+      {
+        "id": "habit_planned",
+        "name": "阅读",
+        "targetMode": "weekly",
+        "weeklyTarget": 6,
+        "goalHistory": [
+          { "effectiveFrom": "2026-10-20", "targetMode": "recordOnly", "weeklyTarget": null },
+          { "effectiveFrom": "2026-10-26", "targetMode": "weekly", "weeklyTarget": 4 },
+          { "effectiveFrom": "2026-11-02", "targetMode": "weekly", "weeklyTarget": 6 }
+        ],
+        "createdAt": "2026-10-20T21:00:00.000+08:00",
+        "updatedAt": "2026-10-26T09:00:00.000+08:00"
+      },
+      {
+        "id": "habit_backfilled",
+        "name": "拼图",
+        "targetMode": "weekly",
+        "weeklyTarget": 3,
+        "goalHistory": [
+          { "effectiveFrom": "2026-09-28", "targetMode": "weekly", "weeklyTarget": 3 }
+        ],
+        "createdAt": "2026-10-20T09:00:00.000+08:00",
+        "updatedAt": "2026-10-20T09:00:00.000+08:00"
+      },
+      {
+        "id": "habit_same_day",
+        "name": "洗漱",
+        "targetMode": "nightly",
+        "weeklyTarget": 1,
+        "goalHistory": [
+          { "effectiveFrom": "2026-10-19", "targetMode": "weekly", "weeklyTarget": 4 },
+          { "effectiveFrom": "2026-10-19", "targetMode": "nightly", "weeklyTarget": 1 }
+        ],
+        "createdAt": "2026-10-01T21:00:00.000+08:00",
+        "updatedAt": "2026-10-19T09:00:00.000+08:00"
+      },
+      {
+        "id": "habit_no_history",
+        "name": "还没有目标的习惯",
+        "targetMode": "weekly",
+        "weeklyTarget": 5,
+        "goalHistory": [],
+        "createdAt": "2026-10-26T03:30:00.000+08:00",
+        "updatedAt": "2026-10-26T03:30:00.000+08:00"
+      }
+    ]
+  },
+  "goalOn": [
+    { "habitId": "habit_planned", "date": "2026-10-19", "expect": { "targetMode": "weekly", "weeklyTarget": 6, "effectiveFrom": "" } },
+    { "habitId": "habit_planned", "date": "2026-10-20", "expect": { "targetMode": "recordOnly", "weeklyTarget": null, "effectiveFrom": "2026-10-20" } },
+    { "habitId": "habit_planned", "date": "2026-10-25", "expect": { "targetMode": "recordOnly", "weeklyTarget": null, "effectiveFrom": "2026-10-20" } },
+    { "habitId": "habit_planned", "date": "2026-10-26", "expect": { "targetMode": "weekly", "weeklyTarget": 4, "effectiveFrom": "2026-10-26" } },
+    { "habitId": "habit_planned", "date": "2026-11-01", "expect": { "targetMode": "weekly", "weeklyTarget": 4, "effectiveFrom": "2026-10-26" } },
+    { "habitId": "habit_planned", "date": "2026-11-02", "expect": { "targetMode": "weekly", "weeklyTarget": 6, "effectiveFrom": "2026-11-02" } },
+    { "habitId": "habit_planned", "date": "2026-12-31", "expect": { "targetMode": "weekly", "weeklyTarget": 6, "effectiveFrom": "2026-11-02" } },
+    { "habitId": "habit_same_day", "date": "2026-10-19", "expect": { "targetMode": "nightly", "weeklyTarget": 1, "effectiveFrom": "2026-10-19" } },
+    { "habitId": "habit_same_day", "date": "2026-10-18", "expect": { "targetMode": "nightly", "weeklyTarget": 1, "effectiveFrom": "" } },
+    { "habitId": "habit_backfilled", "date": "2026-10-05", "expect": { "targetMode": "weekly", "weeklyTarget": 3, "effectiveFrom": "2026-09-28" } },
+    { "habitId": "habit_no_history", "date": "2026-10-27", "expect": { "targetMode": "weekly", "weeklyTarget": 5, "effectiveFrom": "" } }
+  ],
+  "pendingGoalDates": [
+    { "habitId": "habit_planned", "today": "2026-10-27", "expect": ["2026-11-02"] },
+    { "habitId": "habit_planned", "today": "2026-11-02", "expect": [] },
+    { "habitId": "habit_backfilled", "today": "2026-10-27", "expect": [] },
+    { "habitId": "habit_no_history", "today": "2026-10-27", "expect": [] }
+  ],
+  "firstDay": [
+    { "habitId": "habit_planned", "offsetSecs": 28800, "expect": "2026-10-20" },
+    { "habitId": "habit_backfilled", "offsetSecs": 28800, "expect": "2026-09-28" },
+    { "habitId": "habit_same_day", "offsetSecs": 28800, "expect": "2026-10-01" },
+    { "habitId": "habit_no_history", "offsetSecs": 28800, "expect": "2026-10-25" },
+    { "habitId": "habit_no_history", "offsetSecs": 0, "expect": "2026-10-25" }
+  ],
+  "pushGoal": [
+    {
+      "habitId": "habit_planned",
+      "entry": { "effectiveFrom": "2026-11-09", "targetMode": "weekly", "weeklyTarget": 3 },
+      "expectEffectiveFrom": ["2026-10-20", "2026-10-26", "2026-11-02", "2026-11-09"],
+      "expectTargetMode": "weekly",
+      "expectWeeklyTarget": 3
+    },
+    {
+      "habitId": "habit_backfilled",
+      "entry": { "effectiveFrom": "2026-09-21", "targetMode": "recordOnly", "weeklyTarget": null },
+      "expectEffectiveFrom": ["2026-09-21", "2026-09-28"],
+      "expectTargetMode": "weekly",
+      "expectWeeklyTarget": 3,
+      "note": "补一条更早的历史，当前目标不该跟着变。"
+    },
+    {
+      "habitId": "habit_planned",
+      "entry": { "effectiveFrom": "2026-02-30", "targetMode": "nightly", "weeklyTarget": 1 },
+      "expectRejected": true,
+      "expectEffectiveFrom": ["2026-10-20", "2026-10-26", "2026-11-02"],
+      "expectTargetMode": "weekly",
+      "expectWeeklyTarget": 6,
+      "note": "不存在的日期整条不写。"
+    }
+  ]
+}

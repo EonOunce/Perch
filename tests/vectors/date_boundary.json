@@ -1,0 +1,127 @@
+{
+  "name": "日界与日期算术",
+  "note": "两端必须算出同一个 localDate。04:00 日界、周一起点是产品口径，不是实现细节。所有期望值都不依赖任何语言的日期库。",
+  "localDate": [
+    { "instantMs": 1792958400000, "offsetSecs": 28800, "dayStartHour": 4, "expect": "2026-10-26" },
+    { "instantMs": 1792958399999, "offsetSecs": 28800, "dayStartHour": 4, "expect": "2026-10-25" },
+    { "instantMs": 1792958400001, "offsetSecs": 28800, "dayStartHour": 4, "expect": "2026-10-26" },
+    { "instantMs": 1792944000000, "offsetSecs": 28800, "dayStartHour": 4, "expect": "2026-10-25" },
+    { "instantMs": 1792958400000, "offsetSecs": 0, "dayStartHour": 4, "expect": "2026-10-25" },
+    { "instantMs": 1792958400000, "offsetSecs": -18000, "dayStartHour": 4, "expect": "2026-10-25" },
+    { "instantMs": 1792958400000, "offsetSecs": 28800, "dayStartHour": 0, "expect": "2026-10-26" },
+    { "instantMs": 0, "offsetSecs": 0, "dayStartHour": 4, "expect": "1969-12-31" },
+    { "instantMs": -1, "offsetSecs": 0, "dayStartHour": 4, "expect": "1969-12-31" },
+    { "instantMs": -1, "offsetSecs": 0, "dayStartHour": 0, "expect": "1969-12-31" }
+  ],
+  "parseInstant": [
+    { "iso": "2026-10-26T04:00:00.000+08:00", "expectMs": 1792958400000 },
+    { "iso": "2026-10-26T04:00:00+08:00", "expectMs": 1792958400000 },
+    { "iso": "2026-10-25T20:00:00Z", "expectMs": 1792958400000 },
+    { "iso": "2026-10-25T20:00:00.007Z", "expectMs": 1792958400007 },
+    { "iso": "2026-10-25T15:00:00.000-05:00", "expectMs": 1792958400000 },
+    { "iso": "2026-01-01T00:00:00Z", "expectMs": 1767225600000 },
+    { "iso": "1970-01-01T00:00:00Z", "expectMs": 0 }
+  ],
+  "parseInstantRejected": [
+    "",
+    "2026-10-26",
+    "2026-10-26T04:00:00",
+    "2026-10-26 04:00:00Z",
+    "2026-10-26T25:00:00Z",
+    "2026-10-26T04:60:00Z",
+    "2026-10-26T04:00:60Z",
+    "2026-10-26T04:00:00+99:00",
+    "2026-10-26T04:00:00+08:70",
+    "2026-10-26T04:00:00.99",
+    "2026-10-26T04:00:00.00ZZ",
+    "2026-02-30T04:00:00Z"
+  ],
+  "formatInstant": [
+    { "instantMs": 1792958400000, "offsetSecs": 28800, "expect": "2026-10-26T04:00:00.000+08:00" },
+    { "instantMs": 1792958400000, "offsetSecs": 0, "expect": "2026-10-25T20:00:00.000+00:00" },
+    { "instantMs": 1792958400000, "offsetSecs": -18000, "expect": "2026-10-25T15:00:00.000-05:00" },
+    { "instantMs": 1792958400123, "offsetSecs": 28800, "expect": "2026-10-26T04:00:00.123+08:00" },
+    { "instantMs": 1792958399999, "offsetSecs": 28800, "expect": "2026-10-26T03:59:59.999+08:00" }
+  ],
+  "dates": [
+    {
+      "date": "2026-10-26",
+      "expectWeekday": 0,
+      "expectWeekStart": "2026-10-26",
+      "expectNextWeekStart": "2026-11-02",
+      "expectPlus1": "2026-10-27",
+      "expectMinus1": "2026-10-25"
+    },
+    {
+      "date": "2026-10-27",
+      "expectWeekday": 1,
+      "expectWeekStart": "2026-10-26",
+      "expectNextWeekStart": "2026-11-02"
+    },
+    {
+      "date": "2026-11-01",
+      "expectWeekday": 6,
+      "expectWeekStart": "2026-10-26",
+      "expectNextWeekStart": "2026-11-02"
+    },
+    {
+      "date": "2026-12-31",
+      "expectWeekday": 3,
+      "expectWeekStart": "2026-12-28",
+      "expectNextWeekStart": "2027-01-04",
+      "expectPlus1": "2027-01-01"
+    },
+    {
+      "date": "2026-03-01",
+      "expectWeekday": 6,
+      "expectWeekStart": "2026-02-23",
+      "expectMinus1": "2026-02-28"
+    },
+    {
+      "date": "2028-02-29",
+      "expectWeekday": 1,
+      "expectWeekStart": "2028-02-28",
+      "expectNextWeekStart": "2028-03-06",
+      "expectPlus1": "2028-03-01"
+    },
+    {
+      "date": "1999-12-31",
+      "expectWeekday": 4,
+      "expectWeekStart": "1999-12-27",
+      "expectPlus1": "2000-01-01"
+    }
+  ],
+  "invalidDates": [
+    "",
+    "2026-2-3",
+    "2026-02-30",
+    "2026-02-29",
+    "2026-13-01",
+    "2026-10-32",
+    "2026-00-10",
+    "2100-02-29",
+    "1900-02-29",
+    "2026-10-26 "
+  ],
+  "dateRange": [
+    {
+      "from": "2026-10-24",
+      "to": "2026-10-26",
+      "expect": ["2026-10-24", "2026-10-25", "2026-10-26"]
+    },
+    { "from": "2026-10-26", "to": "2026-10-26", "expect": ["2026-10-26"] },
+    { "from": "2026-10-27", "to": "2026-10-26", "expect": [] },
+    {
+      "from": "2026-12-30",
+      "to": "2027-01-02",
+      "expect": ["2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"]
+    }
+  ],
+  "daysBetween": [
+    { "from": "2026-10-20", "to": "2026-10-26", "expect": 6 },
+    { "from": "2026-10-26", "to": "2026-10-20", "expect": -6 },
+    { "from": "2026-12-31", "to": "2027-01-01", "expect": 1 },
+    { "from": "2026-02-28", "to": "2026-03-01", "expect": 1 },
+    { "from": "2028-02-28", "to": "2028-03-01", "expect": 2 }
+  ]
+}

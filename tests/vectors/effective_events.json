@@ -1,0 +1,226 @@
+{
+  "name": "事件有效性与习惯可见性",
+  "note": "同习惯同晚只算一个有效状态：墓碑先淘汰，再淘汰被更正指向的那条，剩下按 createdAt 最新胜出，同一瞬间按 id 大者胜。void 与没有事件都算未确认。归档不是删除，移除才是。",
+  "data": {
+    "schemaVersion": 1,
+    "deviceId": "pc-windows",
+    "habits": [
+      {
+        "id": "habit_read",
+        "name": "阅读",
+        "confirmationTiming": "nextDay",
+        "targetMode": "weekly",
+        "weeklyTarget": 4,
+        "sortOrder": 0,
+        "statsVisible": true,
+        "createdAt": "2026-09-01T09:00:00.000+08:00",
+        "updatedAt": "2026-10-20T21:10:00.000+08:00"
+      },
+      {
+        "id": "habit_late",
+        "name": "睡前刷牙",
+        "sortOrder": 0,
+        "createdAt": "2026-09-01T09:00:00.000+08:00",
+        "updatedAt": "2026-09-01T09:00:00.000+08:00"
+      },
+      {
+        "id": "habit_diary",
+        "name": "写日记",
+        "sortOrder": 1,
+        "archivedAt": "2026-10-10T09:00:00.000+08:00",
+        "statsVisible": true,
+        "createdAt": "2026-09-01T09:00:00.000+08:00",
+        "updatedAt": "2026-10-10T09:00:00.000+08:00"
+      },
+      {
+        "id": "habit_walk",
+        "name": "散步",
+        "sortOrder": 2,
+        "archivedAt": "2026-10-12T09:00:00.000+08:00",
+        "statsVisible": false,
+        "createdAt": "2026-09-01T09:00:00.000+08:00",
+        "updatedAt": "2026-10-12T09:00:00.000+08:00"
+      },
+      {
+        "id": "habit_gone",
+        "name": "已经不要的习惯",
+        "sortOrder": 3,
+        "createdAt": "2026-09-01T09:00:00.000+08:00",
+        "updatedAt": "2026-10-16T09:00:00.000+08:00"
+      }
+    ],
+    "checkinEvents": [
+      {
+        "id": "e_read_19",
+        "habitId": "habit_read",
+        "localDate": "2026-10-19",
+        "status": "done",
+        "source": "manual",
+        "recordedBy": "pc",
+        "createdAt": "2026-10-19T21:00:00.000+08:00"
+      },
+      {
+        "id": "e_read_20",
+        "habitId": "habit_read",
+        "localDate": "2026-10-20",
+        "status": "notDone",
+        "source": "morningReview",
+        "createdAt": "2026-10-20T21:30:00.000+08:00"
+      },
+      {
+        "id": "e_read_21",
+        "habitId": "habit_read",
+        "localDate": "2026-10-21",
+        "status": "void",
+        "createdAt": "2026-10-21T22:00:00.000+08:00"
+      },
+      {
+        "id": "e_read_22_a",
+        "habitId": "habit_read",
+        "localDate": "2026-10-22",
+        "status": "done",
+        "createdAt": "2026-10-22T22:00:00.000+08:00"
+      },
+      {
+        "id": "e_read_22_b",
+        "habitId": "habit_read",
+        "localDate": "2026-10-22",
+        "status": "notDone",
+        "supersedesId": "e_read_22_a",
+        "createdAt": "2026-10-23T07:30:00.000+08:00"
+      },
+      {
+        "id": "e_read_23_a",
+        "habitId": "habit_read",
+        "localDate": "2026-10-23",
+        "status": "done",
+        "createdAt": "2026-10-23T21:00:00.000+08:00"
+      },
+      {
+        "id": "e_read_23_b",
+        "habitId": "habit_read",
+        "localDate": "2026-10-23",
+        "status": "notDone",
+        "supersedesId": "e_read_23_a",
+        "createdAt": "2026-10-24T07:00:00.000+08:00"
+      },
+      {
+        "id": "e_read_23_c",
+        "habitId": "habit_read",
+        "localDate": "2026-10-23",
+        "status": "done",
+        "supersedesId": "e_read_23_b",
+        "createdAt": "2026-10-25T07:00:00.000+08:00"
+      },
+      {
+        "id": "e_read_24",
+        "habitId": "habit_read",
+        "localDate": "2026-10-24",
+        "status": "done",
+        "createdAt": "2026-10-24T21:00:00.000+08:00"
+      },
+      {
+        "id": "e_late_a",
+        "habitId": "habit_late",
+        "localDate": "2026-10-20",
+        "status": "done",
+        "createdAt": "2026-10-20T21:00:00.000+08:00"
+      },
+      {
+        "id": "e_late_b",
+        "habitId": "habit_late",
+        "localDate": "2026-10-20",
+        "status": "notDone",
+        "createdAt": "2026-10-20T21:00:00.000+08:00"
+      },
+      {
+        "id": "e_diary_19",
+        "habitId": "habit_diary",
+        "localDate": "2026-10-19",
+        "status": "done",
+        "createdAt": "2026-10-19T23:00:00.000+08:00"
+      },
+      {
+        "id": "e_diary_20",
+        "habitId": "habit_diary",
+        "localDate": "2026-10-20",
+        "status": "done",
+        "createdAt": "2026-10-20T23:00:00.000+08:00"
+      }
+    ],
+    "tombstones": [
+      {
+        "entityType": "habit",
+        "entityId": "habit_gone",
+        "deletedAt": "2026-10-16T09:00:00.000+08:00",
+        "deletedBy": "pc"
+      },
+      {
+        "entityType": "checkinEvent",
+        "entityId": "e_read_24",
+        "deletedAt": "2026-10-24T22:00:00.000+08:00",
+        "deletedBy": "pc"
+      }
+    ]
+  },
+  "statusOn": [
+    { "habitId": "habit_read", "localDate": "2026-10-18", "expect": "unconfirmed" },
+    { "habitId": "habit_read", "localDate": "2026-10-19", "expect": "done" },
+    { "habitId": "habit_read", "localDate": "2026-10-20", "expect": "notDone" },
+    { "habitId": "habit_read", "localDate": "2026-10-21", "expect": "unconfirmed" },
+    { "habitId": "habit_read", "localDate": "2026-10-22", "expect": "notDone" },
+    { "habitId": "habit_read", "localDate": "2026-10-23", "expect": "done" },
+    { "habitId": "habit_read", "localDate": "2026-10-24", "expect": "unconfirmed" },
+    { "habitId": "habit_read", "localDate": "2026-10-25", "expect": "unconfirmed" },
+    { "habitId": "habit_late", "localDate": "2026-10-20", "expect": "notDone" },
+    { "habitId": "habit_diary", "localDate": "2026-10-19", "expect": "done" },
+    { "habitId": "habit_walk", "localDate": "2026-10-19", "expect": "unconfirmed" }
+  ],
+  "dayCounts": [
+    {
+      "habitId": "habit_read",
+      "from": "2026-10-19",
+      "to": "2026-10-25",
+      "expect": { "done": 2, "notDone": 2, "unconfirmed": 3 }
+    },
+    {
+      "habitId": "habit_diary",
+      "from": "2026-10-19",
+      "to": "2026-10-20",
+      "expect": { "done": 2, "notDone": 0, "unconfirmed": 0 }
+    },
+    {
+      "habitId": "habit_read",
+      "from": "2026-10-19",
+      "to": "2026-10-19",
+      "expect": { "done": 1, "notDone": 0, "unconfirmed": 0 }
+    },
+    {
+      "habitId": "habit_read",
+      "from": "2026-10-27",
+      "to": "2026-10-26",
+      "expect": { "done": 0, "notDone": 0, "unconfirmed": 0 }
+    }
+  ],
+  "unconfirmedDays": [
+    {
+      "habitId": "habit_read",
+      "from": "2026-10-19",
+      "to": "2026-10-25",
+      "expect": ["2026-10-21", "2026-10-24", "2026-10-25"]
+    },
+    { "habitId": "habit_diary", "from": "2026-10-19", "to": "2026-10-21", "expect": ["2026-10-21"] }
+  ],
+  "doneDays": [
+    {
+      "habitId": "habit_read",
+      "from": "2026-10-19",
+      "to": "2026-10-25",
+      "expect": ["2026-10-19", "2026-10-23"]
+    },
+    { "habitId": "habit_walk", "from": "2026-10-19", "to": "2026-10-20", "expect": [] }
+  ],
+  "todayHabitIds": ["habit_late", "habit_read"],
+  "managementHabitIds": ["habit_late", "habit_read", "habit_diary", "habit_walk"],
+  "statsHabitIds": ["habit_late", "habit_read", "habit_diary"]
+}

@@ -1,0 +1,9 @@
+[package]
+name = "perch-core"
+version.workspace = true
+edition.workspace = true
+description = "栖迟的口径与数据层：日界、目标生效、事件有效性、原子存储。纯 Rust，不依赖 Tauri。"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

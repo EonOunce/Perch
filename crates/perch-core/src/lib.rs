@@ -1,0 +1,21 @@
+//! 栖迟的口径与数据层。
+//!
+//! 这里只放「两端必须算出同一个数」的部分：日界、目标生效、事件有效性、原子存储。
+//! 系统能力（路径、DPAPI、窗口、通知、时钟）全部由宿主传参数进来，所以
+//! 本 crate 永不 `use tauri`（DESIGN §5.4），将来抽 UniFFI 给 Android 复用时不用翻口径。
+//!
+//! - [`model`]：可同步 JSON 结构与 `schemaVersion`
+//! - [`date_boundary`]：04:00 日界与日期算术
+//! - [`goal`]：`goalHistory` 生效规则
+//! - [`habits`]：墓碑 / 归档可见性与「一天一个有效事件」
+//! - [`storage`]：`data.json` 原子写与滚动备份
+
+pub mod date_boundary;
+pub mod goal;
+pub mod habits;
+pub mod model;
+pub mod storage;
+
+pub use habits::{counts, effective_events, status_on, DayCounts, DayStatus};
+pub use model::{Data, SCHEMA_VERSION};
+pub use storage::{StorageError, Store};
