@@ -1,13 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capture;
+mod card_view;
 mod clock;
 mod commands;
 mod desktop_layer;
+mod place;
 mod probe_log;
 mod store;
 
 use std::ffi::c_void;
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
@@ -38,8 +41,13 @@ fn place_bottom_right(win: &WebviewWindow, margin: i32) {
     };
     let area = monitor.work_area();
     let size = win.inner_size().unwrap_or(PhysicalSize::new(360, 480));
-    let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
-    let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
+    // `set_position` 挪的是窗口外框，而无边框窗口仍有一圈看不见的调整边框：不把它折算掉，
+    // 内容区的右下角就会比设定的边距多出这么宽。
+    let outer = win.outer_position().unwrap_or(PhysicalPosition::new(0, 0));
+    let inner = win.inner_position().unwrap_or(PhysicalPosition::new(0, 0));
+    let border = (inner.x - outer.x, inner.y - outer.y);
+    let x = area.position.x + area.size.width as i32 - size.width as i32 - margin - border.0;
+    let y = area.position.y + area.size.height as i32 - size.height as i32 - margin - border.1;
     probe_log::note(format!(
         "[place] 工作区原点=({},{}) 尺寸={}x{} → 卡片 ({},{}) {}x{}（logical 配置 360x480，缩放={:.2}）",
         area.position.x,
@@ -55,6 +63,205 @@ fn place_bottom_right(win: &WebviewWindow, margin: i32) {
     if let Err(e) = win.set_position(PhysicalPosition::new(x, y)) {
         probe_log::note(format!("[place] set_position 失败: {e}"));
     }
+}
+
+/// 开机时窗口先按记住的折叠状态挑好尺寸档，再摆位置（§2.1、§2.8）。
+fn boot_slot(settings: &store::Settings) -> &'static str {
+    match (settings.collapsed, settings.strip_rows) {
+        (false, _) => "today",
+        (true, true) => "collapsed",
+        (true, false) => "bar",
+    }
+}
+
+fn work_rect(monitor: &tauri::Monitor) -> place::Rect {
+    let area = monitor.work_area();
+    place::Rect {
+        x: area.position.x,
+        y: area.position.y,
+        width: area.size.width,
+        height: area.size.height,
+    }
+}
+
+/// 窗口左上角落在哪块屏上。跨屏拖动时左上角可能已经在工作区外，
+/// 退回系统报的「最近显示器」，再不行用第一块。
+fn monitor_at(win: &WebviewWindow, pos: (i32, i32)) -> Option<tauri::Monitor> {
+    let monitors = win.available_monitors().ok()?;
+    let containing = monitors.iter().find(|monitor| {
+        let area = monitor.work_area();
+        pos.0 >= area.position.x
+            && pos.0 < area.position.x + area.size.width as i32
+            && pos.1 >= area.position.y
+            && pos.1 < area.position.y + area.size.height as i32
+    });
+    containing
+        .cloned()
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| monitors.first().cloned())
+}
+
+/// 把当前物理位置折成「显示器 + 相对逻辑坐标」再记下来（§3.4）。
+fn place_of(win: &WebviewWindow, pos: (i32, i32)) -> Option<store::Place> {
+    let monitor = monitor_at(win, pos)?;
+    let (x, y) = place::to_relative(work_rect(&monitor), monitor.scale_factor(), pos);
+    Some(store::Place {
+        monitor: monitor.name().cloned(),
+        x,
+        y,
+    })
+}
+
+/// 记住的位置换算回物理像素。显示器不在了就落在第一块屏，
+/// 换算完再夹回工作区，整张卡始终看得见（place.rs）。
+fn saved_position(
+    win: &WebviewWindow,
+    settings: &store::Settings,
+) -> Option<PhysicalPosition<i32>> {
+    let place = settings.place.as_ref()?;
+    let monitors = win.available_monitors().ok()?;
+    let monitor = place
+        .monitor
+        .as_deref()
+        .and_then(|name| {
+            monitors
+                .iter()
+                .find(|monitor| monitor.name().map(String::as_str) == Some(name))
+        })
+        .or_else(|| monitors.first())?
+        .clone();
+    let size = win.outer_size().ok()?;
+    let (x, y) = place::from_relative(
+        work_rect(&monitor),
+        monitor.scale_factor(),
+        (size.width, size.height),
+        (place.x, place.y),
+    );
+    Some(PhysicalPosition::new(x, y))
+}
+
+fn remember_position(app: &AppHandle, pos: PhysicalPosition<i32>) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(place) = place_of(&win, (pos.x, pos.y)) else {
+        return;
+    };
+    let prefs = app.state::<store::SharedPrefs>();
+    if let Err(err) = prefs.with(|prefs| prefs.update(|settings| settings.place = Some(place))) {
+        probe_log::note(format!("[place] 记住位置失败：{err}"));
+    }
+}
+
+/// 拖动时每次 Moved 只把代号加一；等位置连续 250ms 没再变，
+/// 保存线程才去读一次真实坐标写盘，拖动过程中不会每像素写一个文件。
+struct MoveSignal {
+    state: Mutex<MoveState>,
+    settle: Condvar,
+}
+
+#[derive(Default)]
+struct MoveState {
+    generation: u64,
+    saved: u64,
+}
+
+impl MoveSignal {
+    fn new() -> Self {
+        MoveSignal {
+            state: Mutex::new(MoveState::default()),
+            settle: Condvar::new(),
+        }
+    }
+
+    fn bump(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.generation += 1;
+        self.settle.notify_all();
+    }
+
+    /// 等位置静下来，返回这一轮该落盘的代号。
+    fn quiet(&self) -> u64 {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        loop {
+            while state.generation == state.saved {
+                state = self
+                    .settle
+                    .wait(state)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+            let target = state.generation;
+            let (next, _) = self
+                .settle
+                .wait_timeout(state, Duration::from_millis(250))
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state = next;
+            if state.generation == target {
+                return target;
+            }
+        }
+    }
+
+    fn saved(&self, generation: u64) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.saved = state.saved.max(generation);
+    }
+}
+
+fn start_position_saver(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        let generation = handle.state::<MoveSignal>().quiet();
+        if let Some(win) = handle.get_webview_window("main") {
+            if let Ok(pos) = win.outer_position() {
+                remember_position(&handle, pos);
+            }
+        }
+        handle.state::<MoveSignal>().saved(generation);
+    });
+}
+
+/// 退出前补记一次：拖动刚结束就关掉应用时，防抖那次可能还没等到。
+fn flush_position(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        if let Ok(pos) = win.outer_position() {
+            remember_position(app, pos);
+        }
+    }
+}
+
+/// 界面画完第一帧再露面（窗口在配置里是 visible:false）：
+/// 折叠用户不该每次开机先看见一眼展开的卡片。
+#[tauri::command]
+fn ui_ready(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        if let Err(err) = win.show() {
+            probe_log::note(format!("[boot] 显示窗口失败：{err}"));
+        }
+    }
+}
+
+/// 界面脚本要是没起来，3 秒后也把窗口露出来——看不见的卡片比一句报错更难查。
+fn spawn_show_watchdog(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(3));
+        if let Some(win) = handle.get_webview_window("main") {
+            if !win.is_visible().unwrap_or(false) {
+                probe_log::note("[boot] 界面 3 秒没报到，先把窗口显示出来");
+                let _ = win.show();
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -243,10 +450,26 @@ fn main() {
             probe_shift,
             probe_quit,
             commands::view_state,
+            commands::manage_state,
             commands::habit_add,
+            commands::habit_update,
+            commands::habit_goal,
+            commands::habit_archive,
+            commands::habit_stats,
+            commands::habit_remove,
             commands::checkin_set,
             commands::mood_set,
-            commands::note_add
+            commands::note_add,
+            commands::records_state,
+            commands::note_update,
+            commands::note_remove,
+            commands::note_restore,
+            commands::stats_state,
+            commands::prefs_get,
+            commands::prefs_set,
+            ui_ready,
+            card_view::card_set_view,
+            card_view::probe_place
         ])
         .setup(|app| {
             // 数据打不开就别开这张卡：半死的界面比一句明确的失败更难查。
@@ -257,11 +480,30 @@ fn main() {
                 perch.data().habits.len()
             ));
             app.manage(store::SharedState::new(perch));
+            let prefs = store::Prefs::load(&store::app_root()?);
+            let (w, h) = card_view::size_for(boot_slot(prefs.settings()));
             let Some(win) = app.get_webview_window("main") else {
                 return Err("找不到 main 窗口".into());
             };
-            place_bottom_right(&win, desktop_layer::DEFAULT_MARGIN);
-            win.show()?;
+            // 窗口是 visible:false 创建的：先把尺寸与坐标摆好，等界面画完第一帧再露面。
+            // 露出来那一刻就是记住的样子，不会先闪一下右下角再跳过去。
+            win.set_size(tauri::LogicalSize::new(w as f64, h as f64))?;
+            match saved_position(&win, prefs.settings()) {
+                Some(pos) => {
+                    win.set_position(pos)?;
+                    probe_log::note(format!(
+                        "[boot] 恢复位置 ({}, {})，折叠档 {}",
+                        pos.x,
+                        pos.y,
+                        boot_slot(prefs.settings())
+                    ));
+                }
+                None => place_bottom_right(&win, desktop_layer::DEFAULT_MARGIN),
+            }
+            app.manage(store::SharedPrefs::new(prefs));
+            app.manage(MoveSignal::new());
+            start_position_saver(app.handle());
+            spawn_show_watchdog(app.handle());
             probe_log::note(format!(
                 "[boot] spike 启动 pid={} 标题={}",
                 std::process::id(),
@@ -292,12 +534,19 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("构建 Perch spike 失败");
 
-    app.run(|_app, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|app, event| match event {
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Moved(_),
+            ..
+        } if label == "main" => app.state::<MoveSignal>().bump(),
+        tauri::RunEvent::Exit => {
+            flush_position(app);
             probe_log::note("[exit] 退出前还原窗口层级");
             unsafe {
                 desktop_layer::unembed();
             }
         }
+        _ => {}
     });
 }
