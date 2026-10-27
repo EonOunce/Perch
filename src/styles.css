@@ -1856,3 +1856,28 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .strip-row.is-cropping { animation: strip-crop 260ms ease-out; }
+
+/* --------------------------------------------------------------------------
+   换视图与换档（§8）
+   旧内容先淡出，等窗口换好尺寸，新内容再淡入；只动 opacity，不跟着窗口一起跳。
+   -------------------------------------------------------------------------- */
+
+.card-head,
+.tabs,
+.card > .banner,
+.scroller,
+.view,
+.strip,
+.strip-rows {
+  transition: opacity 100ms ease;
+}
+
+.card.is-leaving .card-head,
+.card.is-leaving .tabs,
+.card.is-leaving > .banner,
+.card.is-leaving .scroller,
+.card.is-leaving .view,
+.card.is-leaving .strip,
+.card.is-content-leaving .scroller,
+.card.is-content-leaving .view,
+.strip-rows.is-hiding { opacity: 0; }

@@ -39,16 +39,41 @@ function cfSize() {
   return cfSizing;
 }
 
-function cfSetCollapsed(on) {
-  if (on === cf.collapsed) return;
+// 只改状态与 DOM，不碰窗口：开机要用它先画第一帧，换档则等内容退场后再用。
+function cfShowCollapsed(on) {
   cf.collapsed = on;
   cfe.card.classList.toggle('is-collapsed', on);
   cfe.strip.hidden = !on;
   // 展开态的顶栏、标签与三个视图整块交给 CSS 收；焦点跟着回到看得见的那一块。
   (on ? cfe.expandBtn : cfe.collapseBtn).focus({ preventScroll: true });
-  // 折叠状态自己记住（§2.8）；写失败顶多下次开机回到展开，不该拦住这次折叠。
-  invoke('prefs_set', { collapsed: on }).catch((err) => toast(String(err)));
-  paintStrip(ui.view);
+}
+
+let cfSeq = 0;
+let cfQueue = Promise.resolve();
+
+function cfSetCollapsed(on) {
+  const mine = ++cfSeq;
+  cfQueue = cfQueue.catch(() => {}).then(async () => {
+    // 过渡途中又点了一下（或点了相反方向）：只走最后一次，别来回换档。
+    if (mine !== cfSeq || on === cf.collapsed) return;
+    const ms = motionMs();
+    // 减少动效时连淡出都别做：隐藏两帧同样是一次闪烁。
+    if (ms) {
+      cfe.card.classList.add('is-leaving');
+      await sleep(ms);
+    }
+    cfShowCollapsed(on);
+    // 折叠状态自己记住（§2.8）；写失败顶多下次开机回到展开，不该拦住这次折叠。
+    invoke('prefs_set', { collapsed: on }).catch((err) => toast(String(err)));
+    await paintStrip(ui.view);
+    await afterPaint();
+    cfe.card.classList.remove('is-leaving');
+    updateFade();
+  }).catch((err) => {
+    // 卡在其中一步时不要把内容永远留在透明态；报一声，用户还能继续操作。
+    cfe.card.classList.remove('is-leaving');
+    toast(String(err));
+  });
 }
 
 /* ---------- 长条内容 ---------- */
@@ -95,7 +120,7 @@ function stripHtml(view) {
 }
 
 function paintStrip(view) {
-  if (!view) return;
+  if (!view) return Promise.resolve();
   const { html, quiet } = stripHtml(view);
   cfe.stripDay.textContent = fmtDay(view.today);
   cfe.stripWeek.textContent = weekdayOf(view.today);
@@ -119,7 +144,7 @@ function paintStrip(view) {
   }
   // 折叠按钮那条路径不走 paint()，淡出得自己刷新，否则沿用的是展开态那块滚动区的判断。
   updateFade();
-  cfSize();
+  return cfSize();
 }
 
 /* ---------- 拖动热区与 4px 阈值 ---------- */
@@ -167,11 +192,31 @@ cfe.expandBtn.addEventListener('click', () => {
   if (cfWasDragged()) return;
   cfSetCollapsed(false);
 });
-cfe.stripFold.addEventListener('click', () => {
-  cf.rowsShown = !cf.rowsShown;
-  invoke('prefs_set', { stripRows: cf.rowsShown }).catch((err) => toast(String(err)));
-  paintStrip(ui.view);
-});
+cfe.stripFold.addEventListener('click', () => cfSetRowsShown(!cf.rowsShown));
+
+let cfRowsSeq = 0;
+let cfRowsQueue = Promise.resolve();
+
+// 长条收起/摊开：先让行退场（或先让新行以透明姿态等窗口），再换尺寸，最后淡入（§8）。
+function cfSetRowsShown(on) {
+  const mine = ++cfRowsSeq;
+  cfRowsQueue = cfRowsQueue.catch(() => {}).then(async () => {
+    if (mine !== cfRowsSeq || on === cf.rowsShown) return;
+    const ms = motionMs();
+    if (ms) cfe.stripRows.classList.add('is-hiding');
+    // 收起时先看完退场再缩窗口；摊开时窗口先长高，行在透明状态下等它。
+    if (ms && !on) await sleep(ms);
+    cf.rowsShown = on;
+    invoke('prefs_set', { stripRows: on }).catch((err) => toast(String(err)));
+    await paintStrip(ui.view);
+    await afterPaint();
+    cfe.stripRows.classList.remove('is-hiding');
+    updateFade();
+  }).catch((err) => {
+    cfe.stripRows.classList.remove('is-hiding');
+    toast(String(err));
+  });
+}
 
 cfe.stripRows.addEventListener('click', (event) => {
   const confirm = event.target.closest('[data-confirm]');
@@ -231,7 +276,8 @@ cfe.stripRows.addEventListener('scroll', updateFade, { passive: true });
   if (prefs) {
     // 缺字段（老版本设置）按默认值来：长条默认摊开。
     cf.rowsShown = prefs.stripRows !== false;
-    if (prefs.collapsed) cfSetCollapsed(true);
+    // 开机不演过渡：先把状态摆好，下一行 refresh 画出来的就是最终那一帧。
+    if (prefs.collapsed) cfShowCollapsed(true);
   }
   try {
     await refresh();
