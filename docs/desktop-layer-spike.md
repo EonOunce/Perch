@@ -185,7 +185,7 @@ UI Automation 枚举 `Shell_TrayWnd` 与 `TopLevelWindowForOverflowXamlIsland` �
 - **左键短时提到前台**：真实左键点击后 `alwaysOnTop=true`，8 秒后自动回到 `false`，
   日志里心跳仍是 `层=普通窗口`。符合 §5.2「桌面层不是置顶」——托盘左键只许短时提一下。
   多次点击用 `Raises` 代际计数，被取代的旧计时器不会把新的一次提前的收回去（单测覆盖）。
-- **右键菜单**：真实右键点击弹出原生菜单 `#32768`，条目为「显示 / 隐藏卡片」+ 分隔符 +「退出」，
+- **右键菜单**：真实右键点击弹出原生菜单 `#32768`，条目为「快速记录」+「显示 / 隐藏卡片」+ 分隔符 +「退出」，
   浅色渲染正常（`target/tray-menu.png`）。
 - **菜单项真实点击**：点「显示 / 隐藏卡片」→ `visible=false`；再点一次 → `visible=true`。
   「退出」没点（会关掉正在验证的实例），其处理分支与已验证的 toggle 走同一个 `on_menu_event` match。
@@ -194,3 +194,44 @@ UI Automation 枚举 `Shell_TrayWnd` 与 `TopLevelWindowForOverflowXamlIsland` �
 - **构建前提**：`tauri` 需要 `tray-icon` feature，否则 `tauri::tray` 整个模块不存在。
   本机 tray-icon 0.25.1 + muda 0.20.0 已在 `Cargo.lock` 与本地 registry 缓存里，离线可编。
   托盘挂不上只记日志、不影响启动（`shell::build` 返回 `()`）。
+
+## 12. 全局快捷键与快速记录小窗（2026-10-28）
+
+做法：不装 `tauri-plugin-global-shortcut`（本地 registry 缓存里没有它，离线构建装不上），
+用 `windows-sys` 已有的 `RegisterHotKey` + 一个消息专用窗口（`HWND_MESSAGE`）在自己的线程里收
+`WM_HOTKEY`。`MOD_ALT|MOD_CONTROL|MOD_NOREPEAT` + `VK_N`，按住不放不会连发。
+
+- **最大的坑：窗口不在主线程建，键盘就完全不工作。** 第一版 `toggle()` 直接在快捷键线程里
+  `WebviewWindowBuilder::build()`，结果小窗能显示、能成为前台、`GetGUIThreadInfo` 的焦点就在它的
+  `Chrome_WidgetWin_1` 上、`document.hasFocus()` 是 `true`、鼠标 `mousedown`/`click` 全都进得来——
+  唯独一个 `keydown` 都收不到，怎么敲都是空的。对照组：主窗口的 textarea 聚焦后，同一份注入能收到
+  `key:a`/`key:b`。所以这不是探针的问题。
+  修法：`toggle`/`hide` 一律 `app.run_on_main_thread`，建窗与显示都回主线程。改完立刻生效：
+  真实 `Ctrl+Alt+N` 打开的小窗，第一个按键就到页面。
+  **正式实现记住：任何新建 `WebviewWindow` 的入口（快捷键、托盘、IPC 命令）都必须排回主线程。**
+- **`capabilities/default.json` 的 `windows` 要加 `"quick"`**，否则小窗的自定义命令全被拒——
+  权限是按窗口标签门控的，不只管 `core:*`。
+- **注入的字符进不了编辑框（本机中文 IME）**：`SendInput` 的 VK 与 `KEYEVENTF_UNICODE` 都能产生
+  `keydown`，但不产生 `input`，主窗口同样如此。所以「框里有字」这一步改用
+  `document.execCommand('insertText')`（和 IME 上屏同一条路），保存与关闭仍然用真实按键、真实鼠标。
+  合成 `VK_ESCAPE` 到不了页面（被浏览器进程当加速键吃掉），Esc 那一条改用 CDP
+  `Input.dispatchKeyEvent` 送进渲染进程验证。
+- **真机实测清单**：
+  - 真实 `Ctrl+Alt+N` 打开/收起；小窗逻辑 380×232，125% 下物理起点 723,194，居中偏上；
+  - 存一条：`insertText` + 真实 Enter → `data.json` 新增 `localDate=2026-10-28`、`tags=["朋友"]`
+    （04:08 已过 04:00 日界，归属正确），主卡片靠 `perch:changed` 自己刷新，`#noteList` 出现该条；
+  - 真实点击「记下」同样保存并收起；真实点击 × 收起；
+  - 空内容：「记下」是禁用的，真实 Enter 既不保存也不收起（窗口仍 `visible=True`，notes 计数不变）；
+  - Esc 收起且不保存（notes 计数不变）；
+  - Shift+Enter：真实按键到达页面（记到 `key:Shift`/`key:Enter`）且不触发保存；
+    换行本身是 textarea 的默认行为，受上面那条 IME 限制，**未做真机验证**；
+  - 托盘菜单「快速记录」真实点击 → 小窗打开；
+  - 折叠态日期栏的笔形按钮真实点击 → 小窗打开，卡片仍是 `层=普通窗口`、矩形 468×221 不变
+    （§2.7「不改变主卡片状态」＝档位与层级都不动）；
+  - 标题栏 `data-tauri-drag-region` 真实拖动 → 窗口按物理 +100,+100 位移；
+  - 小窗不进任务栏：打开小窗时抓屏比对任务栏按钮，没有多出「栖迟」。
+- **注册失败分支未实测**：本机 `Ctrl+Alt+N` 没人占。失败时只记日志并发 `perch:hint` 让卡片 toast
+  一句「改走托盘或日期栏的笔形按钮」，不崩溃、不重试。
+- **跨窗口刷新**：Rust 侧 `app.emit("perch:changed", ())` 广播，两个 webview 各自 `listen`；
+  小窗存完自己收起，卡片重新取一次数据。口径仍然只在 `perch-core` 一处。
+

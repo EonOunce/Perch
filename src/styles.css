@@ -1780,6 +1780,7 @@ input[type="range"]::-moz-range-thumb {
   color: var(--ink-soft);
 }
 
+.strip-quick,
 .strip-fold {
   flex: none;
   width: 32px;

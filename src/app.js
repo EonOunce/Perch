@@ -497,5 +497,13 @@ el.scroller.addEventListener('scroll', updateFade, { passive: true });
 
 window.addEventListener('error', (event) => toast(`界面出错：${event.message}`));
 
+// 快速记录小窗是另一个 webview：它存了东西，卡片只能靠事件重新取一次（§2.7）。
+window.__TAURI__.event.listen('perch:changed', () => {
+  if (!ui.busy) refresh();
+});
+
+// 快捷键注册失败这类一次性提示，由 Rust 报过来（§5.3：不崩溃，但要说一声）。
+window.__TAURI__.event.listen('perch:hint', (event) => toast(String(event.payload)));
+
 // 第一帧不在这里画：collapse.js 的开机流程要先读回折叠状态、再 refresh，
 // 画完才让 Rust 把窗口露出来（否则折叠用户每次开机都会先闪一眼展开的卡片）。

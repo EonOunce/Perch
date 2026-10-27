@@ -15,7 +15,7 @@ const cf = {
 const cfe = {};
 for (const id of [
   'card', 'cardHead', 'collapseBtn', 'strip', 'stripBar', 'expandBtn',
-  'stripDay', 'stripWeek', 'stripCount', 'stripFold', 'stripRows',
+  'stripDay', 'stripWeek', 'stripCount', 'stripQuick', 'stripFold', 'stripRows',
 ]) {
   cfe[id] = document.getElementById(id);
 }
@@ -221,6 +221,8 @@ cfe.expandBtn.addEventListener('click', () => {
   cfSetCollapsed(false, cfe.expandBtn);
 });
 cfe.stripFold.addEventListener('click', () => cfSetRowsShown(!cf.rowsShown, cfe.stripFold));
+// 折叠态也要能记一条（§2.8）：小窗是另一个窗口，卡片的档位与层级都不动。
+cfe.stripQuick.addEventListener('click', () => invoke('quick_toggle').catch(toast));
 
 let cfRowsSeq = 0;
 let cfRowsQueue = Promise.resolve();

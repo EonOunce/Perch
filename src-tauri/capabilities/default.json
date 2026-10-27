@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "卡片只需要 IPC 与顶栏拖动，其余窗口能力一律不给",
-  "windows": ["main"],
+  "description": "卡片与快速记录小窗只需要 IPC 与顶栏拖动，其余窗口能力一律不给",
+  "windows": ["main", "quick"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging"

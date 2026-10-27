@@ -1,0 +1,98 @@
+/* 快速记录小窗（§2.7）。令牌与基础件（.save / .compose / .icon-btn）都来自 styles.css，
+   这里只补这张小窗自己的外壳与三行排版。 */
+
+body {
+  padding: 10px;
+}
+
+.quick {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 13px 15px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--paper-bright) 0%, var(--paper) 100%);
+  box-shadow: 0 16px 38px rgba(48, 40, 29, .22), inset 0 1px 0 rgba(255, 255, 255, .86);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quick { animation: quick-in .16s ease-out both; }
+}
+
+@keyframes quick-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.quick-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.topmost-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--amber-wash);
+  color: var(--amber-deep);
+  font-size: var(--t-xs);
+  letter-spacing: .04em;
+}
+
+.topmost-mark > i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--amber-deep);
+}
+
+.quick-title {
+  flex: none;
+  margin: 8px 0 9px;
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.quick .compose { flex: 1; min-height: 0; display: flex; }
+
+.quick .compose textarea {
+  flex: 1;
+  min-height: 0;
+  line-height: 1.7;
+}
+
+.quick-hint {
+  flex: none;
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+
+.quick-foot {
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.key-hint {
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.key-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(103, 90, 70, .05);
+  font-family: inherit;
+  font-size: var(--t-xs);
+}

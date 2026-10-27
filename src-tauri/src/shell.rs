@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 pub const RAISE_MS: u64 = 8_000;
 
 pub const TRAY_ID: &str = "perch-tray";
+pub const ID_QUICK: &str = "quick-record";
 pub const ID_VISIBLE: &str = "toggle-visible";
 pub const ID_QUIT: &str = "quit";
 
@@ -82,17 +83,19 @@ pub fn toggle_visible(app: &AppHandle) {
 }
 
 pub fn build(app: &AppHandle) {
+    // 快捷键可能被别的程序占了，托盘这项是它的兜底入口（§2.7、§5.3）。
+    let quick = MenuItemBuilder::with_id(ID_QUICK, "快速记录").build(app);
     let toggle = MenuItemBuilder::with_id(ID_VISIBLE, "显示 / 隐藏卡片").build(app);
     let quit = MenuItemBuilder::with_id(ID_QUIT, "退出").build(app);
     let separator = PredefinedMenuItem::separator(app);
-    let (toggle, quit, separator) = match (toggle, quit, separator) {
-        (Ok(a), Ok(b), Ok(c)) => (a, b, c),
-        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
-            probe_log::note(format!("[tray] 建菜单失败：{e}"));
+    let (quick, toggle, quit, separator) = match (quick, toggle, quit, separator) {
+        (Ok(a), Ok(b), Ok(c), Ok(d)) => (a, b, c, d),
+        _ => {
+            probe_log::note("[tray] 建菜单失败，托盘没有挂上");
             return;
         }
     };
-    let menu = match Menu::with_items(app, &[&toggle, &separator, &quit]) {
+    let menu = match Menu::with_items(app, &[&quick, &toggle, &separator, &quit]) {
         Ok(menu) => menu,
         Err(e) => {
             probe_log::note(format!("[tray] 装菜单失败：{e}"));
@@ -104,6 +107,7 @@ pub fn build(app: &AppHandle) {
         .show_menu_on_left_click(false)
         .tooltip("栖迟")
         .on_menu_event(|app, event| match event.id().as_ref() {
+            ID_QUICK => crate::quick::toggle(app),
             ID_VISIBLE => toggle_visible(app),
             ID_QUIT => app.exit(0),
             _ => {}
@@ -123,9 +127,9 @@ pub fn build(app: &AppHandle) {
         None => probe_log::note("[tray] 没有内置窗口图标，托盘只能建不出来"),
     }
     match builder.build(app) {
-        Ok(_) => {
-            probe_log::note("[tray] 托盘已挂上（左键短时提到前台，右键菜单：显示/隐藏、退出）")
-        }
+        Ok(_) => probe_log::note(
+            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、退出）",
+        ),
         Err(e) => probe_log::note(format!("[tray] 建托盘失败：{e}")),
     }
 }

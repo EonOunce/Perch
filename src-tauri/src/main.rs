@@ -5,8 +5,10 @@ mod card_view;
 mod clock;
 mod commands;
 mod desktop_layer;
+mod hotkey;
 mod place;
 mod probe_log;
+mod quick;
 mod shell;
 mod store;
 
@@ -517,7 +519,10 @@ fn main() {
             card_view::card_target_size,
             card_view::window_set_bounds,
             card_view::window_shift_by,
-            card_view::probe_place
+            card_view::probe_place,
+            quick::quick_toggle,
+            quick::quick_hide,
+            quick::quick_save
         ])
         .setup(|app| {
             // 数据打不开就别开这张卡：半死的界面比一句明确的失败更难查。
@@ -579,6 +584,8 @@ fn main() {
             }
             // 托盘常驻：卡片平时压在桌面层，靠它叫回来（§5.3）。
             shell::build(app.handle());
+            // 全局快捷键在自己的线程里收 WM_HOTKEY；注册失败只提示，不影响托盘与卡片里的入口。
+            hotkey::spawn(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

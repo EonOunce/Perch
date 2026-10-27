@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>栖迟 · 快速记录</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="quick.css">
+</head>
+<body>
+<section class="quick" role="dialog" aria-labelledby="quickTitle">
+  <header class="quick-head" data-tauri-drag-region>
+    <span class="topmost-mark" data-tauri-drag-region><i></i>临时置顶</span>
+    <button class="icon-btn" id="closeBtn" type="button" aria-label="关闭快速记录" title="关闭（Esc）">×</button>
+  </header>
+  <h1 class="quick-title" id="quickTitle" data-tauri-drag-region>快速记录</h1>
+  <div class="compose">
+    <textarea id="input" rows="3" placeholder="写下一句。可以带上 #标签，也可以什么都不想。"></textarea>
+  </div>
+  <p class="quick-hint" id="hint" hidden></p>
+  <footer class="compose-foot quick-foot">
+    <span class="key-hint"><kbd>Enter</kbd> 保存 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行 · <kbd>Esc</kbd> 关闭</span>
+    <button class="save" id="saveBtn" type="button" disabled>记下</button>
+  </footer>
+</section>
+<script src="quick.js"></script>
+</body>
+</html>
