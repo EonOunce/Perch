@@ -386,7 +386,7 @@ input, textarea { outline: none; }
   --habit-accent: var(--sage);
   --habit-wash: var(--sage-wash);
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 26px 1fr auto auto;
   align-items: center;
   gap: 9px;
   padding: 9px 10px;
@@ -426,6 +426,22 @@ input, textarea { outline: none; }
 }
 
 .habit-week .pending-tag { color: var(--ink-soft); }
+
+/* 铅笔压在打卡按钮右边一整列，不打断名字与周进度的两行。
+   选择器带上 .habit：同一特异度的 .icon-btn 定义在后面，会盖掉这里的描边。 */
+.habit .habit-edit {
+  grid-row: span 2;
+  width: 24px;
+  height: 24px;
+  border-color: transparent;
+  background: transparent;
+  font-size: var(--t-sm);
+}
+
+.habit .habit-edit:hover {
+  border-color: var(--line-strong);
+  background: var(--paper-bright);
+}
 
 .check {
   grid-row: span 2;
@@ -764,6 +780,9 @@ input[type="range"]::-moz-range-thumb {
   gap: 9px;
 }
 
+/* 修改模式下「每次」收起，单位独占一行，不留半个空栏。 */
+.field-row.is-solo { grid-template-columns: 1fr; }
+
 .seg {
   display: flex;
   gap: 6px;
@@ -793,6 +812,13 @@ input[type="range"]::-moz-range-thumb {
   margin-top: 12px;
 }
 
+/* 改目标时先把「下周才生效」写在按钮上方，免得以为今天就会变（§2.4）。 */
+.sheet-hint {
+  margin: 10px 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
 /* 只读模式：文件坏了或版本更新过，写入口一律收起（§4.7）。 */
 .is-readonly .check,
 .is-readonly .choice,
@@ -809,6 +835,470 @@ input[type="range"]::-moz-range-thumb {
 .is-readonly input[type="range"]::-webkit-slider-runnable-track {
   background: var(--paper-deep);
 }
+
+.is-readonly .habit-edit,
+.is-readonly .mrow .icon-btn,
+.is-readonly .mini-save {
+  pointer-events: none;
+  border-color: var(--line);
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+}
+
+.is-readonly .mini-switch input { pointer-events: none; }
+
+/* --------------------------------------------------------------------------
+   习惯管理面板
+   -------------------------------------------------------------------------- */
+
+.panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 面板整块自己滚：标题和「新增」一直在，滚动条落在行上而不是整张卡。 */
+#panel .sheet-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#panel .panel-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0 -2px;
+  padding: 0 2px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.panel-sub {
+  margin: 9px 0 0;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line-strong);
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.panel-empty {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+
+.mrow {
+  --habit-accent: var(--sage);
+  --habit-wash: var(--sage-wash);
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper-bright);
+}
+
+.mrow-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  background: var(--habit-wash);
+  color: var(--habit-accent);
+  font-size: 15px;
+}
+
+.mrow-main { min-width: 0; }
+
+.mrow-name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.mrow-meta {
+  margin: 1px 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+/* 排好了但还没生效的目标：只是「后面会这样」，所以用中性冷灰，不用警示色。 */
+.mrow-note {
+  margin: 3px 0 0;
+  font-size: var(--t-xs);
+  color: var(--mist-deep);
+}
+
+.mrow-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mrow-acts .icon-btn {
+  width: 24px;
+  height: 24px;
+  font-size: var(--t-sm);
+}
+
+/* 破坏性动作用赭石，不用红（§8）。 */
+.icon-btn.is-danger { color: var(--clay-deep); }
+
+.icon-btn.is-danger:hover {
+  color: var(--clay-deep);
+  border-color: rgba(132, 92, 68, .5);
+  background: var(--clay-wash);
+}
+
+.mrow.is-archived {
+  grid-template-columns: 26px 1fr auto auto;
+  border-style: dashed;
+  background: var(--paper);
+}
+
+.mrow.is-archived .mrow-name {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.mini-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.mini-switch input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--sage-deep);
+}
+
+/* 就地确认：第一次点移除只把这一行换成一句话和两个动作，不弹层、不挡别的行。 */
+.mrow.is-confirm {
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  border-color: rgba(132, 92, 68, .4);
+  background: var(--clay-wash);
+}
+
+.mrow-ask {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.4;
+  color: var(--clay-deep);
+}
+
+.mini-save {
+  min-height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--clay-deep);
+  border-radius: 999px;
+  background: var(--clay-deep);
+  font-size: var(--t-sm);
+  color: var(--paper-bright);
+}
+
+/* --------------------------------------------------------------------------
+   标签与记录视图
+   -------------------------------------------------------------------------- */
+
+/* 提示条挪到卡片一级，好让两个视图都看得见；原来是靠滚动区的内边距留白。 */
+.card > .banner {
+  flex: none;
+  margin: 0 14px 4px;
+}
+
+.tabs {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  margin: 0 14px 6px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--sage-wash-soft);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  border-radius: 8px;
+  font-size: var(--t-sm);
+  letter-spacing: .04em;
+  color: var(--ink-soft);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.tab:hover { color: var(--ink); }
+
+.tab.is-on {
+  background: var(--paper-bright);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* 记录视图自己是一列：工具区固定，只有时间线滚。 */
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rec-tools {
+  flex: none;
+  padding: 2px 14px 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rec-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-bright);
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+
+.search-box:focus-within {
+  border-color: rgba(126, 146, 120, .45);
+  box-shadow: 0 0 0 3px var(--sage-wash-soft);
+}
+
+.search-box input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.search-box input::placeholder { color: var(--ink-soft); }
+
+.search-box input::-webkit-search-cancel-button { display: none; }
+
+.tag-row {
+  display: flex;
+  gap: 5px;
+  padding: 7px 1px 1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tag-row::-webkit-scrollbar { display: none; }
+
+/* 只在真的放不下时右缘淡出，提示还能横滑（§13）。 */
+.tag-row.is-clipped {
+  mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+}
+
+.filter-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.filter-chip:hover { border-color: var(--line-strong); color: var(--ink); }
+
+.filter-chip.is-on {
+  border-color: rgba(126, 146, 120, .45);
+  background: var(--sage-wash);
+  color: var(--sage-deep);
+}
+
+.filter-chip .count {
+  margin-left: 4px;
+  font-size: var(--t-xs);
+}
+
+.rec-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 17px;
+  padding-top: 4px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+/* 撤销条留在时间线上方：10 秒里它不能被滚走。 */
+.rec-undo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 14px 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(132, 92, 68, .35);
+  border-radius: 12px;
+  background: var(--clay-wash);
+  font-size: var(--t-sm);
+  color: var(--clay-deep);
+}
+
+.rec-undo span { flex: 1; }
+
+.rec-day-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 0 4px;
+  background: linear-gradient(180deg, rgba(248, 243, 233, .97) 62%, rgba(248, 243, 233, 0));
+  font-size: var(--t-sm);
+  font-weight: 500;
+  letter-spacing: .06em;
+  color: var(--ink-soft);
+}
+
+.rec-day-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.rec-day-n {
+  order: 2;
+  font-size: var(--t-xs);
+  letter-spacing: 0;
+}
+
+.rec-item {
+  position: relative;
+  padding: 7px 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rec-item:last-child { border-bottom: 0; }
+
+/* 时刻那一行给右侧的图标留出位置，正文另起一行不受影响。 */
+.rec-head {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding-right: 58px;
+}
+
+.rec-time {
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+  color: var(--ink-soft);
+}
+
+.rec-acts {
+  position: absolute;
+  top: 6px;
+  right: 0;
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* 图标常驻、中性炭色，悬停才转陶土（§2.5）；移除可撤销，所以不用强调色预告。 */
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 8px;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.tool-btn:hover {
+  background: var(--clay-wash);
+  color: var(--clay-deep);
+}
+
+.rec-text {
+  margin: 2px 0 0;
+  font-size: var(--t-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 就地确认：第一次点移除只把这一条换成一句话和两个动作。 */
+.rec-item.is-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(132, 92, 68, .4);
+  border-radius: 12px;
+  background: var(--clay-wash);
+}
+
+.rec-ask {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.4;
+  color: var(--clay-deep);
+}
+
+.rec-item.is-confirm .rec-acts {
+  position: static;
+  align-items: center;
+  gap: 9px;
+}
+
+.rec-item.is-confirm .text-btn {
+  color: var(--clay-deep);
+  text-decoration-color: rgba(132, 92, 68, .45);
+}
+
+/* 记一条与编辑记录共用一张表单。 */
+.sheet .tag-preview { margin-top: 6px; }
+
+.is-readonly .rec-tools .save,
+.is-readonly .tool-btn,
+.is-readonly .mini-save,
+.is-readonly #fNoteText,
+.is-readonly .search-box input {
+  pointer-events: none;
+}
+
+.is-readonly .tool-btn { color: var(--ink-soft); }
 
 /* --------------------------------------------------------------------------
    轻确认
@@ -836,5 +1326,534 @@ input[type="range"]::-moz-range-thumb {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition-duration: 0ms !important; }
+  * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }
+
+/* --------------------------------------------------------------------------
+   统计视图
+   -------------------------------------------------------------------------- */
+
+.stat-tools {
+  flex: none;
+  padding: 0 14px 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.scope-row,
+.range-row {
+  display: flex;
+  gap: 5px;
+  padding-top: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.scope-row::-webkit-scrollbar,
+.range-row::-webkit-scrollbar { display: none; }
+
+/* 范围档与习惯名共用记录视图那组筛选片：选中只换底色与描边，不新增色相（§8）。 */
+.range-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.range-btn:hover { border-color: var(--line-strong); color: var(--ink); }
+
+.range-btn.is-on {
+  border-color: rgba(126, 146, 120, .45);
+  background: var(--sage-wash);
+  color: var(--sage-deep);
+}
+
+.scope-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--dot);
+}
+
+.range-caption {
+  margin: 7px 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.custom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.date-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.date-field input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-bright);
+  font-size: var(--t-sm);
+}
+
+.date-dash { font-size: var(--t-sm); color: var(--ink-soft); }
+
+.stat-apply { min-height: 28px; padding: 0 12px; }
+
+/* 非法范围就地提示：陶土底，屏上已有的统计内容不清空（§6.1）。 */
+.stat-error {
+  margin: 7px 0 0;
+  padding: 6px 9px;
+  border: 1px solid rgba(132, 92, 68, .35);
+  border-radius: 10px;
+  background: var(--clay-wash);
+  font-size: var(--t-sm);
+  line-height: 1.4;
+  color: var(--clay-deep);
+}
+
+.stat-hero {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 4px 14px;
+  align-items: center;
+}
+
+.stat-hero.is-single { grid-template-columns: 1fr; }
+
+.hero-num { display: flex; flex-direction: column; gap: 1px; }
+
+.hero-num strong {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 大号数字下面那行就是裸的 完成/总数，不加「已完成」「总数」这类标签（§6.2）。 */
+.hero-num span {
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.hero-row {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 0 6px;
+  font-size: var(--t-sm);
+}
+
+.hero-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-n { font-variant-numeric: tabular-nums; }
+
+.hero-week {
+  grid-column: 2 / 4;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.stat-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stat-empty p {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+
+/* 热力图：一行一个习惯，格子用同一色相的 alpha 台阶，不新增色相（§6.2）。 */
+.hm-legend {
+  --hm: var(--sage);
+  display: flex;
+  gap: 12px;
+  margin: 0 0 8px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.lg { display: inline-flex; align-items: center; gap: 3px; }
+
+.hm-rows { display: flex; flex-direction: column; gap: 6px; }
+
+.hm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hm-name {
+  flex: none;
+  width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.hm-line {
+  display: flex;
+  gap: var(--hm-gap);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.hm-line::-webkit-scrollbar { display: none; }
+
+.hm-cell {
+  flex: 1 1 auto;
+  min-width: var(--hm-cell);
+  height: var(--hm-h);
+  border-radius: 2px;
+  background: var(--hm);
+}
+
+.hm-cell.is-l2 { opacity: 1; }
+.hm-cell.is-l1 { opacity: .5; }
+.hm-cell.is-l0 { opacity: .2; }
+.hm-cell.is-blank { opacity: 0; }
+/* 待确认只有描边，不填色：空白与低档都不表示失败（§6.2、§2.2 的「未确认」）。 */
+.hm-cell.is-pending { opacity: .12; box-shadow: inset 0 0 0 1px var(--hm); }
+.hm-cell.is-today { box-shadow: 0 0 0 1.5px var(--clay); }
+.hm-cell.is-ring { opacity: .2; box-shadow: 0 0 0 1.5px var(--clay); }
+
+.vol-total {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+
+.vol-total strong {
+  font-size: var(--t-lg);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.vol-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 52px;
+  margin-top: 8px;
+}
+
+.vol-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--sage);
+}
+
+.vol-bar.is-zero { background: var(--line); }
+
+.vol-caption {
+  margin: 5px 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.time-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 22px;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.time-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--sage-wash-soft);
+  overflow: hidden;
+}
+
+.time-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--sage);
+}
+
+.time-n {
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.mood-line {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+}
+
+.mood-line polyline {
+  fill: none;
+  stroke: var(--mist-deep);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mood-line circle { fill: var(--mist); }
+
+.band-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 8px;
+}
+
+.band {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.band i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.band b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mood-cmp {
+  margin: 8px 0 0;
+  font-size: var(--t-sm);
+  line-height: 1.45;
+}
+
+.mood-soft {
+  margin: 6px 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.rv-line {
+  margin: 0 0 5px;
+  font-size: var(--t-sm);
+  line-height: 1.5;
+}
+
+.rv-line:last-child { margin-bottom: 0; }
+
+/* --------------------------------------------------------------------------
+   折叠态：横向日期栏 + 竖向长条（§2.8）
+   -------------------------------------------------------------------------- */
+
+/* 折叠时整块换掉展开态的顶栏、标签与三个视图，不留可聚焦的残留。 */
+.card.is-collapsed .card-head,
+.card.is-collapsed .tabs,
+.card.is-collapsed .banner,
+.card.is-collapsed .scroller,
+.card.is-collapsed #viewRecords,
+.card.is-collapsed #viewStats { display: none; }
+
+/* 顶栏与日期栏的空白处是拖动热区；品牌块和日期块本身既是点击目标也能拖。 */
+.card-head,
+.strip-bar { cursor: grab; }
+
+.card.is-dragging { opacity: .93; }
+.card.is-dragging .card-head,
+.card.is-dragging .strip-bar { cursor: grabbing; }
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.strip {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.strip-bar {
+  flex: none;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.strip-date {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.strip-day {
+  flex: none;
+  font-size: var(--t-lg);
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.strip-week {
+  flex: none;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+
+/* 有待确认才报个数；一件可做都没有时这一格换成「今天没有要记的」。 */
+.strip-count {
+  margin-left: auto;
+  flex: none;
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-bright);
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.strip-fold {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.strip-fold .icon { transition: transform 200ms ease; }
+
+.strip-fold.is-folded .icon { transform: rotate(180deg); }
+
+.strip-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 12px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.strip-rows::-webkit-scrollbar { width: 6px; }
+
+.strip-rows::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--scrollbar);
+}
+
+.strip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+}
+
+.strip-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-md);
+}
+
+.strip-when {
+  flex: none;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+/* 已点过的行收成窄条：没有色点，字号降一级，只留结果和撤销。 */
+.strip-row.is-cropped {
+  min-height: 22px;
+  padding-left: 14px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.strip-done {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「裁掉」要让人看见它缩成了窄条（§8）：只有刚点掉的那一行演一次。 */
+@keyframes strip-crop {
+  from { height: 30px; }
+  to { height: 22px; }
+}
+
+.strip-row.is-cropping { animation: strip-crop 260ms ease-out; }

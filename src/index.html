@@ -38,13 +38,64 @@
   <symbol id="i-clock" viewBox="0 0 24 24">
     <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
   </symbol>
+  <symbol id="i-search" viewBox="0 0 24 24">
+    <circle cx="10.6" cy="10.6" r="6.1"/><path d="m15.2 15.2 4.3 4.3"/>
+  </symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24">
+    <path d="M4.4 19.8h3.9L19 9.1a2.4 2.4 0 0 0-3.4-3.4L4.9 16.4v3.4Z"/>
+    <path d="M14.4 6.9 17.1 9.6"/>
+  </symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24">
+    <path d="M3.8 6.4h16.4v3.1H3.8z"/>
+    <path d="M5.4 9.5v8a1.5 1.5 0 0 0 1.5 1.5h10.2a1.5 1.5 0 0 0 1.5-1.5v-8"/>
+    <path d="M10 12.9h4"/>
+  </symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24">
+    <path d="M4.7 6.6h14.6"/>
+    <path d="M9.5 6.6V4.9a1.2 1.2 0 0 1 1.2-1.2h2.6a1.2 1.2 0 0 1 1.2 1.2v1.7"/>
+    <path d="M6.5 6.6l.8 12.2a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12.2"/>
+  </symbol>
+  <symbol id="i-restore" viewBox="0 0 24 24">
+    <path d="M19.4 12a7.4 7.4 0 1 1-2.2-5.3"/>
+    <path d="M19.6 4.2v4.4h-4.4"/>
+  </symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6.5 14.5 5.5-5.5 5.5 5.5"/></symbol>
 </svg>
 
 <main class="card" id="card">
-  <section class="card-head" data-tauri-drag-region>
-    <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
-    <span class="brand-cn">栖迟</span>
+  <section class="card-head" id="cardHead">
+    <button class="brand" id="collapseBtn" type="button" aria-label="折叠卡片">
+      <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
+      <span class="brand-cn">栖迟</span>
+    </button>
   </section>
+
+  <!-- 折叠态（§2.8）：横向日期栏 + 其下垂挂的竖向长条，整块替代上面的标签与内容区。 -->
+  <section class="strip" id="strip" hidden>
+    <header class="strip-bar" id="stripBar">
+      <button class="strip-date" id="expandBtn" type="button" aria-label="展开卡片">
+        <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
+        <span class="strip-day" id="stripDay">—</span>
+        <span class="strip-week" id="stripWeek"></span>
+        <span class="strip-count" id="stripCount" hidden></span>
+      </button>
+      <button class="icon-btn strip-fold" id="stripFold" type="button" aria-label="收起长条">
+        <svg class="icon"><use href="#i-chevron"/></svg>
+      </button>
+    </header>
+    <div class="strip-rows" id="stripRows"></div>
+  </section>
+
+  <nav class="tabs" id="tabs" role="tablist" aria-label="栖迟视图">
+    <button class="tab is-on" id="tabToday" type="button" role="tab"
+            aria-selected="true" data-view="today">今天</button>
+    <button class="tab" id="tabRecords" type="button" role="tab"
+            aria-selected="false" data-view="records">记录</button>
+    <button class="tab" id="tabStats" type="button" role="tab"
+            aria-selected="false" data-view="stats">统计</button>
+  </nav>
+
+  <p class="banner" id="storageBanner" hidden></p>
 
   <div class="scroller" id="scroller">
     <header class="date-block">
@@ -52,15 +103,14 @@
       <p class="date-eyebrow" id="weekLine">—</p>
     </header>
 
-    <p class="banner" id="storageBanner" hidden></p>
 
     <section class="zone review" id="reviewZone" hidden aria-live="polite"></section>
 
     <section class="zone">
       <div class="zone-head">
         <h2>习惯</h2>
-        <button class="zone-action" id="addHabitTop" type="button" hidden>
-          <svg class="icon"><use href="#i-plus"/></svg><span>新增</span>
+        <button class="zone-action" id="openManage" type="button">
+          <svg class="icon"><use href="#i-edit"/></svg><span>管理</span>
         </button>
       </div>
       <div class="habit-list" id="habitList"></div>
@@ -98,12 +148,102 @@
     </section>
   </div>
 
+  <div class="view" id="viewRecords" hidden>
+    <div class="rec-tools">
+      <div class="rec-search-row">
+        <label class="search-box">
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input id="recSearch" type="search" placeholder="搜索记录或 #标签"
+                 autocomplete="off" aria-label="搜索记录">
+        </label>
+        <button class="save" id="recAdd" type="button">记一条</button>
+      </div>
+      <div class="tag-row" id="tagRow" role="group" aria-label="按标签筛选"></div>
+      <div class="rec-meta">
+        <span id="recCount"></span>
+        <button class="text-btn" id="recClear" type="button" hidden>清除筛选</button>
+      </div>
+    </div>
+
+    <div class="rec-undo" id="recUndo" hidden>
+      <span>已移除这条记录。</span>
+      <button class="text-btn" id="recUndoBtn" type="button">撤销</button>
+    </div>
+
+    <div class="scroller" id="recScroll">
+      <div class="rec-list" id="recList"></div>
+    </div>
+  </div>
+
+  <div class="view" id="viewStats" hidden>
+    <div class="stat-tools">
+      <div class="scope-row" id="statScope" role="group" aria-label="统计的习惯范围"></div>
+      <div class="range-row" id="statRange" role="group" aria-label="统计时间范围">
+        <button class="range-btn" type="button" data-range="7">7 天</button>
+        <button class="range-btn" type="button" data-range="30">30 天</button>
+        <button class="range-btn" type="button" data-range="90">90 天</button>
+        <button class="range-btn" type="button" data-range="month">本月</button>
+        <button class="range-btn" type="button" data-range="lastMonth">上月</button>
+        <button class="range-btn" type="button" data-range="custom">自定义</button>
+      </div>
+      <p class="range-caption" id="statCaption">—</p>
+      <div class="custom-row" id="statCustom" hidden>
+        <label class="date-field"><span>从</span><input id="statFrom" type="date" aria-label="起始日期"></label>
+        <span class="date-dash">–</span>
+        <label class="date-field"><span>到</span><input id="statTo" type="date" aria-label="结束日期"></label>
+        <button class="save stat-apply" id="statApply" type="button">应用</button>
+      </div>
+      <p class="stat-error" id="statError" hidden aria-live="polite"></p>
+    </div>
+
+    <div class="scroller" id="statScroll">
+      <div id="statBody"></div>
+    </div>
+  </div>
+
   <div class="fade" aria-hidden="true"></div>
+
+  <div class="sheet" id="panel" hidden>
+    <div class="sheet-body">
+      <div class="sheet-head">
+        <h3>习惯管理</h3>
+        <button class="zone-action" id="panelAdd" type="button">
+          <svg class="icon"><use href="#i-plus"/></svg><span>新增</span>
+        </button>
+        <button class="icon-btn" id="panelClose" type="button" aria-label="关闭管理面板">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="panel-list" id="panelList"></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="noteSheet" hidden>
+    <form class="sheet-body" id="noteForm">
+      <div class="sheet-head">
+        <h3 id="noteSheetTitle">记一条</h3>
+        <button class="icon-btn" id="noteSheetClose" type="button" aria-label="关闭">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <label class="field">
+        <textarea id="fNoteText" rows="4" placeholder="写下一句，今天的、刚才的，都可以。"
+                  aria-label="记录正文"></textarea>
+      </label>
+      <div class="tag-preview" id="noteTagPreview"></div>
+
+      <div class="sheet-foot">
+        <button class="text-btn" id="noteCancel" type="button">取消</button>
+        <button class="save" id="noteSheetSave" type="submit" disabled>保存</button>
+      </div>
+    </form>
+  </div>
 
   <div class="sheet" id="sheet" hidden>
     <form class="sheet-body" id="habitForm">
       <div class="sheet-head">
-        <h3>新增习惯</h3>
+        <h3 id="sheetTitle">新增习惯</h3>
         <button class="icon-btn" id="sheetClose" type="button" aria-label="关闭表单">
           <svg class="icon"><use href="#i-x"/></svg>
         </button>
@@ -119,12 +259,17 @@
         <textarea id="fDef" rows="2" placeholder="留空也可以"></textarea>
       </label>
 
-      <div class="field-row">
+      <label class="field">
+        <span>如果…就…</span>
+        <textarea id="fIfThen" rows="2" placeholder="什么时候提醒自己开始"></textarea>
+      </label>
+
+      <div class="field-row" id="fUnitRow">
         <label class="field">
           <span>单位</span>
           <input id="fUnit" maxlength="6" placeholder="次">
         </label>
-        <label class="field">
+        <label class="field" id="fCountWrap">
           <span>每次</span>
           <input id="fCount" type="number" min="1" max="99" step="1" placeholder="1">
         </label>
@@ -151,6 +296,8 @@
         <input id="fWeekly" type="number" min="1" max="7" step="1" placeholder="3">
       </label>
 
+      <p class="sheet-hint" id="goalHint" hidden>目标改动从下一个周一起生效，本周照旧。</p>
+
       <div class="sheet-foot">
         <button class="save" type="submit">保存</button>
       </div>
@@ -161,5 +308,10 @@
 </main>
 
 <script src="app.js"></script>
+<script src="manage.js"></script>
+<script src="views.js"></script>
+<script src="records.js"></script>
+<script src="stats.js"></script>
+<script src="collapse.js"></script>
 </body>
 </html>

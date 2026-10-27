@@ -18,14 +18,18 @@ const ui = {
   snoozed: false,
   sheetMode: 'weekly',
   sheetTiming: 'sameDay',
+  // 这张表单正在改哪个习惯；`null` 就是新增。
+  editing: null,
 };
 
 const el = {};
 for (const id of [
-  'card', 'scroller', 'dateTitle', 'weekLine', 'storageBanner', 'reviewZone',
-  'addHabitTop', 'habitList', 'moodBox', 'moodFace', 'moodName', 'moodValue', 'moodSlider',
+  'card', 'scroller',
+  'dateTitle', 'weekLine', 'storageBanner', 'reviewZone',
+  'habitList', 'moodBox', 'moodFace', 'moodName', 'moodValue', 'moodSlider',
   'noteInput', 'tagPreview', 'noteSave', 'noteCount', 'noteList',
-  'sheet', 'habitForm', 'sheetClose', 'fName', 'fDef', 'fUnit', 'fCount',
+  'sheet', 'habitForm', 'sheetTitle', 'sheetClose', 'goalHint',
+  'fName', 'fDef', 'fIfThen', 'fUnit', 'fUnitRow', 'fCount', 'fCountWrap',
   'fTiming', 'fMode', 'fWeekly', 'fWeeklyWrap', 'toast',
 ]) {
   el[id] = document.getElementById(id);
@@ -122,7 +126,7 @@ function paint(view) {
   renderHabits(view);
   renderMood(view);
   renderNotes(view);
-  el.addHabitTop.hidden = view.isEmpty;
+  paintStrip(view);
   updateFade();
 }
 
@@ -170,9 +174,10 @@ function renderReview(view) {
 function weekText(habit) {
   const hasTarget = habit.targetMode !== 'recordOnly' && habit.weeklyTarget !== null;
   const soon = dayGap(habit.targetFrom, ui.view.today) > 0 ? ` ${fmtDay(habit.targetFrom)} 起` : '';
+  // 单位取自习惯自己，不写死「晚/天」：统计视图同一行读的就是这个字段（§6.2）。
   return hasTarget
-    ? `本周 ${habit.weekDone}/${habit.weeklyTarget} 晚${soon}`
-    : `本周 ${habit.weekDone} 天${soon}`;
+    ? `本周 ${habit.weekDone}/${habit.weeklyTarget} ${habit.unit}${soon}`
+    : `本周 ${habit.weekDone} ${habit.unit}${soon}`;
 }
 
 function renderHabits(view) {
@@ -197,6 +202,8 @@ function renderHabits(view) {
       <span class="habit-icon">${icon(esc(habit.icon))}</span>
       <span class="habit-name">${esc(habit.name)}</span>
       ${action}
+      <button class="icon-btn habit-edit" type="button" data-edit="${esc(habit.id)}"
+              aria-label="修改「${esc(habit.name)}」">${icon('edit')}</button>
       <p class="habit-week">${esc(weekText(habit))}</p>
     </div>`;
   }).join('');
@@ -247,14 +254,54 @@ function renderNotes(view) {
   </div>`).join('');
 }
 
+// 淡出属于整张卡，所以量的永远是「当前那个视图里的滚动区」。
+// 三个视图各带一块滚动区，淡出只看当前可见的那块；写死 ID 名单会随视图增加而漏掉一个。
+// 真正在屏上的那一块滚动区。不能只挑「自己没有 hidden 属性」的：记录与统计各自带一段
+// 工具区，被隐藏的是外层视图容器，滚动区本身没有属性——那样统计标签下会选中记录那块，
+// 淡出永远算出 0。折叠态下能往下翻的是长条（§8）。
+function currentScroller() {
+  if (cf.collapsed) return cfe.stripRows;
+  for (const node of document.querySelectorAll('.scroller')) {
+    if (node.getClientRects().length) return node;
+  }
+  return null;
+}
+
 function updateFade() {
-  const left = el.scroller.scrollHeight - el.scroller.scrollTop - el.scroller.clientHeight;
+  const scroller = currentScroller();
+  if (!scroller) return;
+  const left = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
   el.card.classList.toggle('is-scrollable', left > 4);
 }
 
-/* ---------- 表单 ---------- */
+/* ---------- 表单（新增与修改共用一张） ---------- */
 
-function openSheet() {
+const fieldText = (input) => {
+  const raw = input.value.trim();
+  return raw === '' ? undefined : raw;
+};
+
+// 传入面板那一行就是修改模式：字段填上现值，目标一栏改成「下一个周一起」（§2.4）。
+function openSheet(row) {
+  ui.editing = row || null;
+  el.sheetTitle.textContent = row ? '修改习惯' : '新增习惯';
+  el.goalHint.hidden = !row;
+  // 「每次」属于目标那一档，改它得等下周一，所以修改模式里不出现一个改了没用的框（§2.4）。
+  el.fCountWrap.hidden = !!row;
+  el.fUnitRow.classList.toggle('is-solo', !!row);
+  if (row) {
+    el.fName.value = row.name;
+    el.fDef.value = row.operationalDefinition || '';
+    el.fIfThen.value = row.ifThen || '';
+    el.fUnit.value = row.unit || '';
+    el.fCount.value = row.targetCount ?? '';
+    el.fWeekly.value = row.weeklyTarget ?? '';
+    ui.sheetTiming = row.confirmationTiming;
+    ui.sheetMode = row.targetMode === 'recordOnly' ? 'recordOnly' : 'weekly';
+    setSeg(el.fTiming, ui.sheetTiming);
+    setSeg(el.fMode, ui.sheetMode);
+    syncSheet();
+  }
   el.sheet.hidden = false;
   el.fName.focus();
 }
@@ -262,8 +309,13 @@ function openSheet() {
 function closeSheet() {
   el.sheet.hidden = true;
   el.habitForm.reset();
+  ui.editing = null;
   ui.sheetTiming = 'sameDay';
   ui.sheetMode = 'weekly';
+  el.sheetTitle.textContent = '新增习惯';
+  el.goalHint.hidden = true;
+  el.fCountWrap.hidden = false;
+  el.fUnitRow.classList.remove('is-solo');
   setSeg(el.fTiming, ui.sheetTiming);
   setSeg(el.fMode, ui.sheetMode);
   syncSheet();
@@ -285,42 +337,66 @@ function numberValue(input) {
   return Math.max(1, Math.round(Number(raw)) || 1);
 }
 
+function formPayload() {
+  return {
+    name: el.fName.value.trim(),
+    operationalDefinition: fieldText(el.fDef),
+    unit: fieldText(el.fUnit),
+    targetCount: numberValue(el.fCount),
+    confirmationTiming: ui.sheetTiming,
+    targetMode: ui.sheetMode,
+    weeklyTarget: numberValue(el.fWeekly),
+    ifThen: fieldText(el.fIfThen),
+  };
+}
+
+// 目标只有真的填了差异才发那一趟：它走 `change_goal`，新目标从下一个周一起生效。
+// 数字留空算「不改」，不是「改成 1」。
+function goalPatch(row) {
+  if (ui.sheetMode === 'recordOnly') {
+    return row.targetMode === 'recordOnly' ? null : { targetMode: 'recordOnly', weeklyTarget: null };
+  }
+  const target = numberValue(el.fWeekly);
+  if (target === undefined || target === row.weeklyTarget) return null;
+  return { targetMode: 'weekly', weeklyTarget: target };
+}
+
 async function submitSheet(event) {
   event.preventDefault();
-  const name = el.fName.value.trim();
-  if (!name) {
+  const form = formPayload();
+  if (!form.name) {
     toast('给这个习惯起个名字');
     el.fName.focus();
     return;
   }
-  const definition = el.fDef.value.trim();
-  const unit = el.fUnit.value.trim();
-  const saved = await call('habit_add', {
-    form: {
-      name,
-      operationalDefinition: definition === '' ? undefined : definition,
-      unit: unit === '' ? undefined : unit,
-      targetCount: numberValue(el.fCount),
-      confirmationTiming: ui.sheetTiming,
-      targetMode: ui.sheetMode,
-      weeklyTarget: numberValue(el.fWeekly),
-    },
-  });
+  const editing = ui.editing;
+  if (!editing) {
+    if (await call('habit_add', { form })) {
+      closeSheet();
+      toast('已经加上');
+      if (panel.isOpen) syncPanel();
+    }
+    return;
+  }
+  const saved = await manageWrite('habit_update', { habitId: editing.id, form });
   if (saved) {
+    const patch = goalPatch(editing);
+    if (patch) await manageWrite('habit_goal', { habitId: editing.id, ...patch });
     closeSheet();
-    toast('已经加上');
+    toast('已经改好');
   }
 }
 
 /* ---------- 碎碎念 ---------- */
 
 // 预览只是即时回显；真正入库的标签由 perch-core 的 parse_tags 决定。
-function previewTags(text) {
+// 记录视图那张表单也用它，所以显示位置做成参数。
+function previewTags(text, target = el.tagPreview) {
   const out = [];
   for (const word of text.split(/\s+/)) {
     if (word.startsWith('#') && word.length > 1 && !out.includes(word)) out.push(word);
   }
-  el.tagPreview.innerHTML = out.map((t) => `<span class="chip">${esc(t)}</span>`).join('');
+  target.innerHTML = out.map((t) => `<span class="chip">${esc(t)}</span>`).join('');
 }
 
 async function saveNote() {
@@ -374,7 +450,6 @@ el.habitList.addEventListener('click', (event) => {
   });
 });
 
-el.addHabitTop.addEventListener('click', openSheet);
 el.sheetClose.addEventListener('click', closeSheet);
 el.habitForm.addEventListener('submit', submitSheet);
 el.fTiming.addEventListener('click', (event) => {
@@ -422,4 +497,5 @@ el.scroller.addEventListener('scroll', updateFade, { passive: true });
 
 window.addEventListener('error', (event) => toast(`界面出错：${event.message}`));
 
-refresh();
+// 第一帧不在这里画：collapse.js 的开机流程要先读回折叠状态、再 refresh，
+// 画完才让 Rust 把窗口露出来（否则折叠用户每次开机都会先闪一眼展开的卡片）。
