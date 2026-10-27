@@ -341,7 +341,9 @@
   </div>
 
   <div class="sheet" id="sheet" hidden>
-    <form class="sheet-body" id="habitForm">
+    <!-- novalidate：原生校验气泡是浏览器口径的「请填写此字段。」，与本机的中性提示语
+         冲突（§2.10 不惩罚）。保留 required 给读屏器，校验交给 submitSheet。 -->
+    <form class="sheet-body" id="habitForm" novalidate>
       <div class="sheet-head">
         <h3 id="sheetTitle">新增习惯</h3>
         <button class="icon-btn" id="sheetClose" type="button" aria-label="关闭表单">
@@ -350,7 +352,7 @@
       </div>
 
       <label class="field">
-        <span>名称<em>必填</em></span>
+        <span>名称</span>
         <input id="fName" maxlength="24" placeholder="散步" required>
       </label>
 

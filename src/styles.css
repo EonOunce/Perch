@@ -350,6 +350,10 @@ input, textarea { outline: none; }
 }
 
 .text-btn {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 2px;
   font-size: var(--t-sm);
   color: var(--ink-soft);
   text-decoration: underline;
@@ -755,13 +759,6 @@ input[type="range"]::-moz-range-thumb {
   color: var(--ink-soft);
 }
 
-.field em {
-  margin-left: 5px;
-  font-style: normal;
-  font-size: var(--t-xs);
-  color: var(--clay-deep);
-}
-
 .field input,
 .field textarea {
   display: block;
@@ -971,6 +968,7 @@ input[type="range"]::-moz-range-thumb {
 .mini-switch {
   display: inline-flex;
   align-items: center;
+  min-height: 24px;
   gap: 4px;
   font-size: var(--t-xs);
   color: var(--ink-soft);
@@ -1091,6 +1089,8 @@ input[type="range"]::-moz-range-thumb {
 .search-box input {
   width: 100%;
   min-width: 0;
+  /* 整条 32px 高的框都要能点进光标，不留 19px 的文字行当靶子（§13 可点区）。 */
+  height: 100%;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -1121,7 +1121,7 @@ input[type="range"]::-moz-range-thumb {
   flex: none;
   display: inline-flex;
   align-items: center;
-  min-height: 23px;
+  min-height: 24px;
   padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1356,7 +1356,7 @@ input[type="range"]::-moz-range-thumb {
   flex: none;
   display: inline-flex;
   align-items: center;
-  min-height: 23px;
+  min-height: 24px;
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1830,7 +1830,7 @@ input[type="range"]::-moz-range-thumb {
 
 .strip-when {
   flex: none;
-  font-size: var(--t-xs);
+  font-size: var(--t-sm);
   color: var(--ink-soft);
 }
 
