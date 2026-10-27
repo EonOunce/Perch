@@ -10,10 +10,14 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     ChildWindowFromPoint, CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows,
@@ -768,6 +772,40 @@ pub fn start_heartbeat() {
             }
         }
     });
+}
+
+/// 去掉 DWM 沿窗口矩形画的那圈 1px 边框线。卡片是 22px 圆角、窗口本身透明，
+/// 这圈直角线会露在圆角外面；`DWMWA_BORDER_COLOR = NONE` 让 DWM 不画它。
+/// show 之后立刻调是安全的（2026-10-27 真机实测）。
+///
+/// 不要动 `WS_CAPTION` 等样式位：tao 的透明客户区扩展依赖现有样式，清掉样式位会让
+/// 非客户区被画成一圈白框、还把系统菜单的关闭按钮露出来（同日真机实测）。
+pub unsafe fn hide_dwm_border(hwnd: HWND) {
+    let color: u32 = DWMWA_COLOR_NONE;
+    let hr = DwmSetWindowAttribute(
+        hwnd,
+        DWMWA_BORDER_COLOR as u32,
+        &color as *const u32 as *const c_void,
+        std::mem::size_of::<u32>() as u32,
+    );
+    probe_log::note(format!("[frame] 去边框 hwnd={hwnd:p} hr={hr:#010X}"));
+}
+
+/// 把整个窗口划进客户区，去掉顶部那 1px 标题栏残线（实测第 0 行从 (244,244,237)
+/// 变回透出的桌面色）。
+///
+/// **必须等窗口合成稳定之后再调**：show 之后立刻调，WebView2 的表面照常画（PrintWindow
+/// 看得到），但 DWM 不再把它合成到屏幕上，整窗在屏上消失，且事后撤掉扩展也救不回来；
+/// 延迟到合成稳定后调则一切正常。桌面层实测见 docs/desktop-layer-spike.md §9。
+pub unsafe fn extend_frame(hwnd: HWND) {
+    let margins = MARGINS {
+        cxLeftWidth: -1,
+        cxRightWidth: -1,
+        cyTopHeight: -1,
+        cyBottomHeight: -1,
+    };
+    let hr = DwmExtendFrameIntoClientArea(hwnd, &margins);
+    probe_log::note(format!("[frame] 扩展客户区 hwnd={hwnd:p} hr={hr:#010X}"));
 }
 
 /// 记录卡片 HWND，供看门狗与心跳使用。

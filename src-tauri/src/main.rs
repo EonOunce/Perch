@@ -247,6 +247,7 @@ fn ui_ready(app: AppHandle) {
         if let Err(err) = win.show() {
             probe_log::note(format!("[boot] 显示窗口失败：{err}"));
         }
+        hide_window_border(&win);
     }
 }
 
@@ -259,8 +260,32 @@ fn spawn_show_watchdog(app: &AppHandle) {
             if !win.is_visible().unwrap_or(false) {
                 probe_log::note("[boot] 界面 3 秒没报到，先把窗口显示出来");
                 let _ = win.show();
+                hide_window_border(&win);
             }
         }
+    });
+}
+
+/// 去掉 DWM 沿窗口矩形画的那圈直角边框线（卡片是 22px 圆角，线会露在圆角外面）。
+/// 只改 DWM 属性、不动窗口样式位：动样式位会把非客户区画成白框并露出关闭按钮。
+fn hide_window_border(win: &WebviewWindow) {
+    if let Ok(hwnd) = win.hwnd() {
+        unsafe { desktop_layer::hide_dwm_border(hwnd.0) };
+        schedule_frame_extend(hwnd.0);
+    }
+}
+
+/// 顶部那 1px 标题栏残线只能靠扩展客户区去掉，而扩展必须等合成稳定之后调，
+/// 否则整窗在屏上消失（见 desktop_layer::extend_frame 的注释）。
+fn schedule_frame_extend(hwnd: *mut c_void) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // 裸指针不是 Send，过线程边界先换成 usize。
+    let raw = hwnd as usize;
+    ONCE.call_once(|| {
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            unsafe { desktop_layer::extend_frame(raw as *mut c_void) };
+        });
     });
 }
 
