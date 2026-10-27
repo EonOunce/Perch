@@ -7,6 +7,7 @@ mod commands;
 mod desktop_layer;
 mod place;
 mod probe_log;
+mod shell;
 mod store;
 
 use std::ffi::c_void;
@@ -345,6 +346,24 @@ fn probe_quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// 托盘那两条路径的探针入口：真机点托盘图标要靠 UI 自动化找图标位置，
+/// 先用它量「提到前台 → 8 秒后自己还回桌面层」与「显示/隐藏」到底有没有生效。
+#[tauri::command]
+fn probe_tray(action: String, app: AppHandle) -> &'static str {
+    if std::env::var_os("PERCH_PROBE").is_none() {
+        return "探针未开启";
+    }
+    match action.as_str() {
+        "raise" => shell::raise_temporary(&app),
+        "toggle" => shell::toggle_visible(&app),
+        other => {
+            probe_log::note(format!("[tray] 探针：未知动作 {other}"));
+            return "未知动作";
+        }
+    }
+    "已执行"
+}
+
 /// 用 PrintWindow 抓一个窗口自身的画面。走窗口自绘，不受「桌面上被别的窗口挡住」影响。
 fn shot_of(label: &str, hwnd: *mut c_void) {
     let dir = probe_log::spike_dir().join("shots");
@@ -474,6 +493,7 @@ fn main() {
             probe_shell_event,
             probe_shift,
             probe_quit,
+            probe_tray,
             commands::view_state,
             commands::manage_state,
             commands::habit_add,
@@ -557,6 +577,8 @@ fn main() {
                 }
                 None => probe_log::note("[boot] 按标题找不到卡片窗口，桌面层测试没跑起来"),
             }
+            // 托盘常驻：卡片平时压在桌面层，靠它叫回来（§5.3）。
+            shell::build(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

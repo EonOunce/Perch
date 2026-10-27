@@ -7,7 +7,8 @@ edition.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# 托盘需要 tray-icon 这个 feature（Tauri 2 里它不在默认特性里）；菜单与托盘图标都由它带进来。
+tauri = { version = "2", features = ["tray-icon"] }
 perch-core = { path = "../crates/perch-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
