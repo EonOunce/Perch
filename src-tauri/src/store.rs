@@ -19,7 +19,8 @@ const APP_DIR: &str = "Perch";
 const SETTINGS_FILE: &str = "settings.json";
 
 /// 设备本地设置。位置、折叠状态与长条收起状态是 §2.8 要求记住的三件事；
-/// 自启两项是 §12 #6 的「默认关、只问一次」。不同步、不进日志。
+/// 自启两项是 §12 #6 的「默认关、只问一次」；早晨浮出两项是 §2.3 的「每天最多一次、可关」。
+/// 不同步、不进日志。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -34,6 +35,10 @@ pub struct Settings {
     pub autostart: bool,
     /// 首次启动那一次问过了没有——问过就不再追问（§12 #6）。
     pub autostart_asked: bool,
+    /// 早晨自动浮出。默认开，但只在真有待确认项时浮（§2.3）；托盘菜单里可关。
+    pub morning_raise: bool,
+    /// 上一次浮出是哪一天（`localDate`，04:00 日界）。同一天不第二次（§2.3）。
+    pub morning_raise_date: Option<String>,
 }
 
 impl Default for Settings {
@@ -46,6 +51,8 @@ impl Default for Settings {
             place: None,
             autostart: false,
             autostart_asked: false,
+            morning_raise: true,
+            morning_raise_date: None,
         }
     }
 }

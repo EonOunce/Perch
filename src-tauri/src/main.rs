@@ -7,6 +7,7 @@ mod clock;
 mod commands;
 mod desktop_layer;
 mod hotkey;
+mod morning;
 mod place;
 mod probe_log;
 mod quick;
@@ -255,6 +256,17 @@ fn ui_ready(app: AppHandle) {
     }
 }
 
+/// 立刻走一遍早晨浮出的判断：不等启动那一拍，也不复制一份判断逻辑。
+/// 要量的是「提层有没有把她正在用的窗口挤到后台」，那只能对着前台句柄测。
+#[tauri::command]
+fn probe_morning(app: AppHandle) -> &'static str {
+    if std::env::var_os("PERCH_PROBE").is_none() {
+        return "探针未开启";
+    }
+    morning::decide(&app);
+    "判断已走一遍"
+}
+
 /// 界面脚本要是没起来，3 秒后也把窗口露出来——看不见的卡片比一句报错更难查。
 fn spawn_show_watchdog(app: &AppHandle) {
     let handle = app.clone();
@@ -499,6 +511,7 @@ fn main() {
             probe_shift,
             probe_quit,
             probe_tray,
+            probe_morning,
             commands::view_state,
             commands::manage_state,
             commands::habit_add,
@@ -589,6 +602,8 @@ fn main() {
             }
             // 托盘常驻：卡片平时压在桌面层，靠它叫回来（§5.3）。
             shell::build(app.handle());
+            // 早晨自动浮出：等界面把第一帧画完再判断，开机第一次露面不该同时改两件事（§2.3）。
+            morning::spawn(app.handle());
             // 全局快捷键在自己的线程里收 WM_HOTKEY；注册失败只提示，不影响托盘与卡片里的入口。
             hotkey::spawn(app.handle().clone());
             Ok(())

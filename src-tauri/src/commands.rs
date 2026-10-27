@@ -458,6 +458,11 @@ fn commit_records(
     })
 }
 
+/// 昨天还剩几项没确认。早晨浮出要知道这个数（§2.3），而数怎么算只有 `build` 一处。
+pub fn awaiting_count(perch: &Perch) -> usize {
+    build(perch).pending_total
+}
+
 /// 把 `Data` 摊成今天视图。这里不出现第二个公式，只调用 perch-core。
 fn build(perch: &Perch) -> ViewState {
     let data = perch.data();
