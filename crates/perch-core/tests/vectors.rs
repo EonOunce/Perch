@@ -11,7 +11,7 @@ use perch_core::date_boundary::{
     week_start, weekday_mon_first, DAY_START_HOUR,
 };
 use perch_core::model::{Data, GoalEntry, TargetMode};
-use perch_core::{goal, habits};
+use perch_core::{goal, habits, merge};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -23,6 +23,8 @@ struct Vector {
     note: String,
     #[serde(default)]
     data: Option<Data>,
+    #[serde(default)]
+    merge: Vec<MergeCase>,
     #[serde(default)]
     local_date: Vec<LocalDateCase>,
     #[serde(default)]
@@ -206,6 +208,121 @@ struct PushCase {
     expect_weekly_target: Option<i32>,
 }
 
+/// 一条合并用例：两份快照 + 可选基线 + 期望结果（DESIGN §4.5）。
+/// 期望只写业务字段，顺序就是合并该产出的稳定顺序（集合并按 id / 自然键排好）。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeCase {
+    label: String,
+    local: Data,
+    remote: Data,
+    #[serde(default)]
+    base: Option<Data>,
+    #[serde(default)]
+    expect: MergeExpect,
+    #[serde(flatten)]
+    unknown: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeExpect {
+    #[serde(default)]
+    schema_version: Option<u32>,
+    /// 远端那份快照本机读不懂吗（§4.7）——断言的是输入，不是合并结果。
+    #[serde(default)]
+    unknown_schema: Option<bool>,
+    #[serde(default)]
+    habits: Option<Vec<HabitRow>>,
+    #[serde(default)]
+    goals: Option<Vec<GoalRow>>,
+    #[serde(default)]
+    markers: Option<Vec<MarkerRow>>,
+    #[serde(default)]
+    checkin_events: Option<Vec<EventRow>>,
+    #[serde(default)]
+    notes: Option<Vec<NoteRow>>,
+    #[serde(default)]
+    moods: Option<Vec<MoodRow>>,
+    #[serde(default)]
+    tombstones: Option<Vec<GraveRow>>,
+    #[serde(default)]
+    removed_habit_ids: Option<Vec<String>>,
+    #[serde(default)]
+    today_habit_ids: Option<Vec<String>>,
+    #[serde(default)]
+    stats_habit_ids: Option<Vec<String>>,
+    /// 合并后交给读取侧裁决，确认「同晚只有一个有效状态」没被合并破坏。
+    #[serde(default)]
+    effective_statuses: Option<Vec<StatusCase>>,
+    #[serde(flatten)]
+    unknown: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct HabitRow {
+    id: String,
+    name: String,
+    #[serde(default)]
+    unit: String,
+    #[serde(default)]
+    weekly_target: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GoalRow {
+    habit_id: String,
+    effective_from: String,
+    target_mode: String,
+    #[serde(default)]
+    weekly_target: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct MarkerRow {
+    id: String,
+    label: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct EventRow {
+    id: String,
+    local_date: String,
+    status: String,
+    #[serde(default)]
+    supersedes_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct NoteRow {
+    id: String,
+    text: String,
+    #[serde(default)]
+    conflict_of: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct MoodRow {
+    id: String,
+    local_date: String,
+    score: i32,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GraveRow {
+    entity_type: String,
+    entity_id: String,
+    deleted_at: String,
+    deleted_by: String,
+}
+
 fn vectors_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/vectors")
@@ -333,6 +450,11 @@ fn run(v: &Vector, file: &str) -> usize {
             ctx("daysBetween", i)
         );
         n += 1;
+    }
+
+    // 合并用例自带两份快照，不依赖上面的 data，所以放在「有 data 才能跑」那段之前。
+    for (i, c) in v.merge.iter().enumerate() {
+        n += check_merge(c, i, &v.name, file);
     }
 
     // 下面这些段落都要一份数据快照。
@@ -476,6 +598,225 @@ fn check_ids(section: &str, want: &[String], got: Vec<&perch_core::model::Habit>
     let ids: Vec<String> = got.iter().map(|h| h.id.clone()).collect();
     assert_eq!(ids, want.to_vec(), "{section} 名单不一致");
     1
+}
+
+fn check_merge(c: &MergeCase, i: usize, name: &str, file: &str) -> usize {
+    let ctx = || format!("{file} · {name} · merge[{i}]「{}」", c.label);
+    assert!(
+        c.unknown.is_empty(),
+        "{} 有不认识的字段 {:?}",
+        ctx(),
+        c.unknown.keys()
+    );
+    assert!(
+        c.expect.unknown.is_empty(),
+        "{} 的 expect 有不认识的字段 {:?}",
+        ctx(),
+        c.expect.unknown.keys()
+    );
+
+    let merged = merge::merge(&c.local, &c.remote, c.base.as_ref());
+    // 两台设备各算各的：交换来路后内容必须一模一样，否则永远合不到一起、每次都「有变化」。
+    let flipped = merge::merge(&c.remote, &c.local, c.base.as_ref());
+    assert_eq!(
+        merge::fingerprint(&merged),
+        merge::fingerprint(&flipped),
+        "{} 不对称",
+        ctx()
+    );
+    // 幂等：拿合并结果再跟自己合一次，不该变出别的东西。
+    let twice = merge::merge(&merged, &merged, Some(&merged));
+    assert_eq!(
+        merge::fingerprint(&twice),
+        merge::fingerprint(&merged),
+        "{} 不幂等",
+        ctx()
+    );
+    let mut n = 2;
+
+    if let Some(want) = c.expect.schema_version {
+        assert_eq!(merged.schema_version, want, "{} schemaVersion", ctx());
+        n += 1;
+    }
+    if let Some(want) = c.expect.unknown_schema {
+        assert_eq!(
+            merge::unknown_schema(&c.remote),
+            want,
+            "{} unknownSchema",
+            ctx()
+        );
+        n += 1;
+    }
+    if let Some(want) = &c.expect.habits {
+        assert_eq!(habit_rows(&merged), *want, "{} habits", ctx());
+        n += 1;
+    }
+    if let Some(want) = &c.expect.goals {
+        assert_eq!(goal_rows(&merged), *want, "{} goals", ctx());
+        n += 1;
+    }
+    if let Some(want) = &c.expect.markers {
+        assert_eq!(marker_rows(&merged), *want, "{} markers", ctx());
+        n += 1;
+    }
+    if let Some(want) = &c.expect.checkin_events {
+        assert_eq!(event_rows(&merged), *want, "{} checkinEvents", ctx());
+        n += 1;
+    }
+    if let Some(want) = &c.expect.notes {
+        assert_eq!(note_rows(&merged), *want, "{} notes", ctx());
+        n += 1;
+    }
+    if let Some(want) = &c.expect.moods {
+        assert_eq!(mood_rows(&merged), *want, "{} moods", ctx());
+        n += 1;
+    }
+    if let Some(want) = &c.expect.tombstones {
+        assert_eq!(grave_rows(&merged), *want, "{} tombstones", ctx());
+        n += 1;
+    }
+    n += check_list(
+        "removedHabitIds",
+        &c.expect.removed_habit_ids,
+        merged
+            .habits
+            .iter()
+            .filter(|h| habits::is_removed(&merged, h))
+            .map(|h| h.id.clone())
+            .collect(),
+    );
+    n += check_list(
+        "todayHabitIds",
+        &c.expect.today_habit_ids,
+        habits::today_list(&merged)
+            .iter()
+            .map(|h| h.id.clone())
+            .collect(),
+    );
+    n += check_list(
+        "statsHabitIds",
+        &c.expect.stats_habit_ids,
+        habits::stats_list(&merged)
+            .iter()
+            .map(|h| h.id.clone())
+            .collect(),
+    );
+    if let Some(want) = &c.expect.effective_statuses {
+        let got: Vec<&str> = want
+            .iter()
+            .map(|s| status_text(habits::status_on(&merged, &s.habit_id, &s.local_date)))
+            .collect();
+        let expect: Vec<&str> = want.iter().map(|s| s.expect.as_str()).collect();
+        assert_eq!(got, expect, "{} effectiveStatuses", ctx());
+        n += 1;
+    }
+    assert!(
+        n > 2,
+        "{} 的 expect 一个字段都没写，这条用例等于没测",
+        ctx()
+    );
+    n
+}
+
+fn check_list(section: &str, want: &Option<Vec<String>>, got: Vec<String>) -> usize {
+    match want {
+        Some(want) => {
+            assert_eq!(got, *want, "{section} 名单不一致");
+            1
+        }
+        None => 0,
+    }
+}
+
+/// 枚举与 JSON 里的字符串一律按模型自己的 serde 口径取，测试不再抄一份名字表。
+fn json_str<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_value(v)
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn habit_rows(d: &Data) -> Vec<HabitRow> {
+    d.habits
+        .iter()
+        .map(|h| HabitRow {
+            id: h.id.clone(),
+            name: h.name.clone(),
+            unit: h.unit.clone(),
+            weekly_target: h.weekly_target,
+        })
+        .collect()
+}
+
+fn goal_rows(d: &Data) -> Vec<GoalRow> {
+    d.habits
+        .iter()
+        .flat_map(|h| {
+            h.goal_history.iter().map(move |g| GoalRow {
+                habit_id: h.id.clone(),
+                effective_from: g.effective_from.clone(),
+                target_mode: json_str(&g.target_mode),
+                weekly_target: g.weekly_target,
+            })
+        })
+        .collect()
+}
+
+fn marker_rows(d: &Data) -> Vec<MarkerRow> {
+    d.markers
+        .iter()
+        .map(|m| MarkerRow {
+            id: m.id.clone(),
+            label: m.label.clone(),
+        })
+        .collect()
+}
+
+fn event_rows(d: &Data) -> Vec<EventRow> {
+    d.checkin_events
+        .iter()
+        .map(|e| EventRow {
+            id: e.id.clone(),
+            local_date: e.local_date.clone(),
+            status: json_str(&e.status),
+            supersedes_id: e.supersedes_id.clone(),
+        })
+        .collect()
+}
+
+fn note_rows(d: &Data) -> Vec<NoteRow> {
+    d.notes
+        .iter()
+        .map(|n| NoteRow {
+            id: n.id.clone(),
+            text: n.text.clone(),
+            conflict_of: n.conflict_of.clone(),
+        })
+        .collect()
+}
+
+fn mood_rows(d: &Data) -> Vec<MoodRow> {
+    d.daily_moods
+        .iter()
+        .map(|m| MoodRow {
+            id: m.id.clone(),
+            local_date: m.local_date.clone(),
+            score: m.score,
+        })
+        .collect()
+}
+
+fn grave_rows(d: &Data) -> Vec<GraveRow> {
+    d.tombstones
+        .iter()
+        .map(|t| GraveRow {
+            entity_type: json_str(&t.entity_type),
+            entity_id: t.entity_id.clone(),
+            deleted_at: t.deleted_at.clone(),
+            deleted_by: t.deleted_by.clone(),
+        })
+        .collect()
 }
 
 fn find_habit<'a>(data: &'a Data, id: &str, file: &str) -> &'a perch_core::model::Habit {

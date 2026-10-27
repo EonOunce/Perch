@@ -1,0 +1,691 @@
+{
+  "name": "同步合并",
+  "note": "两端各算各的必须收敛到同一份内容：所有取舍只看记录自身（updatedAt，事件看 createdAt；同一瞬间比内容编码），不看谁是本地。缺失不等于删除，删除只认墓碑；正文并发时一份保留原 id、另一份另存副本，副本 id = 原id#败者时间戳里的字母数字。unknownSchema 断言的是远端那份快照本机读不懂（DESIGN §4.7），merged 写出的版本永远是本机这一版。",
+  "merge": [
+    {
+      "label": "两端都空",
+      "local": { "schemaVersion": 1, "deviceId": "pc-windows" },
+      "remote": { "schemaVersion": 1, "deviceId": "phone-android" },
+      "base": null,
+      "expect": {
+        "schemaVersion": 1,
+        "unknownSchema": false,
+        "habits": [],
+        "markers": [],
+        "checkinEvents": [],
+        "notes": [],
+        "moods": [],
+        "tombstones": []
+      }
+    },
+    {
+      "label": "只有一侧有：取并集，绝不把缺失当成删除",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "unit": "杯",
+            "weeklyTarget": 3,
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "markers": [
+          {
+            "id": "marker_a",
+            "habitId": "habit_water",
+            "localDate": "2026-10-10",
+            "label": "换成小杯子",
+            "createdAt": "2026-10-10T09:00:00.000+08:00",
+            "updatedAt": "2026-10-10T09:00:00.000+08:00"
+          }
+        ],
+        "notes": [
+          {
+            "id": "note_a",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "本机写的记录",
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "habits": [
+          {
+            "id": "habit_read",
+            "name": "阅读",
+            "unit": "分钟",
+            "weeklyTarget": 4,
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ],
+        "markers": [
+          {
+            "id": "marker_b",
+            "habitId": "habit_read",
+            "localDate": "2026-10-12",
+            "label": "改成睡前读",
+            "createdAt": "2026-10-12T09:00:00.000+08:00",
+            "updatedAt": "2026-10-12T09:00:00.000+08:00"
+          }
+        ],
+        "notes": [
+          {
+            "id": "note_b",
+            "createdAt": "2026-10-21T09:00:00.000+08:00",
+            "localDate": "2026-10-21",
+            "text": "手机上写的记录",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "schemaVersion": 1,
+        "habits": [
+          { "id": "habit_read", "name": "阅读", "unit": "分钟", "weeklyTarget": 4 },
+          { "id": "habit_water", "name": "喝水", "unit": "杯", "weeklyTarget": 3 }
+        ],
+        "markers": [
+          { "id": "marker_a", "label": "换成小杯子" },
+          { "id": "marker_b", "label": "改成睡前读" }
+        ],
+        "notes": [
+          { "id": "note_a", "text": "本机写的记录", "conflictOf": null },
+          { "id": "note_b", "text": "手机上写的记录", "conflictOf": null }
+        ]
+      }
+    },
+    {
+      "label": "习惯元数据后写胜出",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "本机改的名",
+            "unit": "次",
+            "weeklyTarget": 3,
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "远端改的名",
+            "unit": "杯",
+            "weeklyTarget": 5,
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "habits": [
+          { "id": "habit_water", "name": "远端改的名", "unit": "杯", "weeklyTarget": 5 }
+        ],
+        "todayHabitIds": ["habit_water"]
+      }
+    },
+    {
+      "label": "goalHistory 取并集，同一生效日归习惯级赢家那一侧",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "weeklyTarget": 6,
+            "goalHistory": [
+              { "effectiveFrom": "2026-10-05", "targetMode": "weekly", "weeklyTarget": 3 },
+              { "effectiveFrom": "2026-10-19", "targetMode": "weekly", "weeklyTarget": 6 }
+            ],
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "weeklyTarget": 5,
+            "goalHistory": [
+              { "effectiveFrom": "2026-10-05", "targetMode": "weekly", "weeklyTarget": 4 },
+              { "effectiveFrom": "2026-10-12", "targetMode": "weekly", "weeklyTarget": 5 }
+            ],
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "habits": [
+          { "id": "habit_water", "name": "喝水", "unit": "次", "weeklyTarget": 6 }
+        ],
+        "goals": [
+          { "habitId": "habit_water", "effectiveFrom": "2026-10-05", "targetMode": "weekly", "weeklyTarget": 3 },
+          { "habitId": "habit_water", "effectiveFrom": "2026-10-12", "targetMode": "weekly", "weeklyTarget": 5 },
+          { "habitId": "habit_water", "effectiveFrom": "2026-10-19", "targetMode": "weekly", "weeklyTarget": 6 }
+        ]
+      }
+    },
+    {
+      "label": "墓碑赢：删掉的习惯不因另一侧又编辑了一次而复活",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "habits": [
+          {
+            "id": "habit_gone",
+            "name": "已经不要的习惯",
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "tombstones": [
+          {
+            "entityType": "habit",
+            "entityId": "habit_gone",
+            "deletedAt": "2026-10-22T09:00:00.000+08:00",
+            "deletedBy": "pc-windows"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "habits": [
+          {
+            "id": "habit_gone",
+            "name": "手机上还留着",
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-23T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "habits": [
+          { "id": "habit_gone", "name": "手机上还留着", "unit": "次", "weeklyTarget": null }
+        ],
+        "tombstones": [
+          {
+            "entityType": "habit",
+            "entityId": "habit_gone",
+            "deletedAt": "2026-10-22T09:00:00.000+08:00",
+            "deletedBy": "pc-windows"
+          }
+        ],
+        "removedHabitIds": ["habit_gone"],
+        "todayHabitIds": [],
+        "statsHabitIds": []
+      }
+    },
+    {
+      "label": "同一侧内部重复就地收敛；同一晚两条不同事件都保留，裁决仍留给读取侧",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "checkinEvents": [
+          {
+            "id": "e1",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "done",
+            "source": "manual",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-21T20:00:00.000+08:00"
+          },
+          {
+            "id": "e1",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "done",
+            "source": "manual",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-21T20:00:00.000+08:00"
+          },
+          {
+            "id": "e2",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "notDone",
+            "source": "morningReview",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-22T08:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "checkinEvents": [
+          {
+            "id": "e1",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "done",
+            "source": "manual",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-21T20:00:00.000+08:00"
+          },
+          {
+            "id": "e2",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "notDone",
+            "source": "morningReview",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-22T08:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "checkinEvents": [
+          { "id": "e1", "localDate": "2026-10-21", "status": "done", "supersedesId": null },
+          { "id": "e2", "localDate": "2026-10-21", "status": "notDone", "supersedesId": null }
+        ],
+        "effectiveStatuses": [
+          { "habitId": "habit_water", "localDate": "2026-10-21", "expect": "notDone" }
+        ]
+      }
+    },
+    {
+      "label": "并发更正：更正链跨设备合并后仍指向最新那条，原始事件永远保留",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "checkinEvents": [
+          {
+            "id": "e1",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "done",
+            "source": "manual",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-21T20:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "habits": [
+          {
+            "id": "habit_water",
+            "name": "喝水",
+            "createdAt": "2026-09-01T09:00:00.000+08:00",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "checkinEvents": [
+          {
+            "id": "e1",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "done",
+            "source": "manual",
+            "recordedBy": "pc-windows",
+            "createdAt": "2026-10-21T20:00:00.000+08:00"
+          },
+          {
+            "id": "e2",
+            "habitId": "habit_water",
+            "localDate": "2026-10-21",
+            "status": "notDone",
+            "source": "morningReview",
+            "supersedesId": "e1",
+            "recordedBy": "phone-android",
+            "createdAt": "2026-10-22T08:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "checkinEvents": [
+          { "id": "e1", "localDate": "2026-10-21", "status": "done", "supersedesId": null },
+          { "id": "e2", "localDate": "2026-10-21", "status": "notDone", "supersedesId": "e1" }
+        ],
+        "effectiveStatuses": [
+          { "habitId": "habit_water", "localDate": "2026-10-21", "expect": "notDone" }
+        ]
+      }
+    },
+    {
+      "label": "正文并发：较新的一份保留原 id，较旧的一份另存冲突副本",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "本机改过的正文",
+            "tags": ["周末"],
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "手机上改过的正文",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "base": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "两边共同的原文",
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "notes": [
+          { "id": "note_1", "text": "本机改过的正文", "conflictOf": null },
+          {
+            "id": "note_1#20261021T0900000000800",
+            "text": "手机上改过的正文",
+            "conflictOf": "note_1"
+          }
+        ]
+      }
+    },
+    {
+      "label": "只有一侧改过正文：改过的那侧直接胜出，不产生副本",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "本机改过的正文",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "两边共同的原文",
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "base": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "两边共同的原文",
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "notes": [
+          { "id": "note_1", "text": "本机改过的正文", "conflictOf": null }
+        ]
+      }
+    },
+    {
+      "label": "没有基线（首次同步或基线丢了）：同 id 内容不同就双方都留",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "本机改过的正文",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "手机上改过的正文",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "base": null,
+      "expect": {
+        "notes": [
+          { "id": "note_1", "text": "本机改过的正文", "conflictOf": null },
+          {
+            "id": "note_1#20261021T0900000000800",
+            "text": "手机上改过的正文",
+            "conflictOf": "note_1"
+          }
+        ]
+      }
+    },
+    {
+      "label": "心情一天最多一条，按 updatedAt 后写胜出",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "dailyMoods": [
+          {
+            "id": "mood_2026-10-21",
+            "localDate": "2026-10-21",
+            "score": 40,
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "dailyMoods": [
+          {
+            "id": "mood_2026-10-21",
+            "localDate": "2026-10-21",
+            "score": 70,
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          },
+          {
+            "id": "mood_2026-10-20",
+            "localDate": "2026-10-20",
+            "score": 55,
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "moods": [
+          { "id": "mood_2026-10-20", "localDate": "2026-10-20", "score": 55 },
+          { "id": "mood_2026-10-21", "localDate": "2026-10-21", "score": 70 }
+        ]
+      }
+    },
+    {
+      "label": "另一台设备换了 id 重写同一天，删除仍然算删（自然键的墓碑）",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "dailyMoods": [
+          {
+            "id": "mood_pc",
+            "localDate": "2026-10-21",
+            "score": 40,
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ],
+        "tombstones": [
+          {
+            "entityType": "dailyMood",
+            "entityId": "mood_pc",
+            "deletedAt": "2026-10-23T09:00:00.000+08:00",
+            "deletedBy": "pc-windows"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "dailyMoods": [
+          {
+            "id": "mood_phone",
+            "localDate": "2026-10-21",
+            "score": 70,
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "moods": [
+          { "id": "mood_phone", "localDate": "2026-10-21", "score": 70 }
+        ],
+        "tombstones": [
+          {
+            "entityType": "dailyMood",
+            "entityId": "mood_pc",
+            "deletedAt": "2026-10-23T09:00:00.000+08:00",
+            "deletedBy": "pc-windows"
+          },
+          {
+            "entityType": "dailyMood",
+            "entityId": "mood_phone",
+            "deletedAt": "2026-10-23T09:00:00.000+08:00",
+            "deletedBy": "pc-windows"
+          }
+        ]
+      }
+    },
+    {
+      "label": "墓碑并集保留最早的删除时间",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "tombstones": [
+          {
+            "entityType": "note",
+            "entityId": "note_1",
+            "deletedAt": "2026-10-23T09:00:00.000+08:00",
+            "deletedBy": "zz"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "tombstones": [
+          {
+            "entityType": "note",
+            "entityId": "note_1",
+            "deletedAt": "2026-10-22T09:00:00.000+08:00",
+            "deletedBy": "aa"
+          }
+        ]
+      },
+      "expect": {
+        "tombstones": [
+          {
+            "entityType": "note",
+            "entityId": "note_1",
+            "deletedAt": "2026-10-22T09:00:00.000+08:00",
+            "deletedBy": "aa"
+          }
+        ]
+      }
+    },
+    {
+      "label": "远端版本更高：本机读不懂它，绝不降级写回",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows"
+      },
+      "remote": {
+        "schemaVersion": 2,
+        "deviceId": "phone-android",
+        "notes": [
+          {
+            "id": "note_new",
+            "createdAt": "2026-10-24T09:00:00.000+08:00",
+            "localDate": "2026-10-24",
+            "text": "新版本写的正文",
+            "updatedAt": "2026-10-24T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "schemaVersion": 1,
+        "unknownSchema": true,
+        "notes": [
+          { "id": "note_new", "text": "新版本写的正文", "conflictOf": null }
+        ]
+      }
+    }
+  ]
+}
