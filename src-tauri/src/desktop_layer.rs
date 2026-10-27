@@ -1,6 +1,7 @@
 //! 桌面层嵌入探针：把卡片窗口挂到 Explorer 的桌面层（WorkerW / Progman）下面。
 //! 对应 DESIGN §5.2 方案 A；实测结论写进 `docs/desktop-layer-spike.md`。
-//! 拿不到桌面窗口时保持普通窗口（方案 B），产品功能不受影响。
+//! 卡片是桌面层图层的**最上面一个子窗口**：压在壁纸和图标之上、普通应用之下，这样才收得到鼠标。
+//! 拿不到能收鼠标的桌面窗口时保持普通窗口（方案 B），产品功能不受影响。
 
 use std::ffi::c_void;
 use std::ptr::null_mut;
@@ -10,24 +11,23 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     ChildWindowFromPoint, CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows,
-    FindWindowExW, FindWindowW, GA_PARENT, GetAncestor, GetClassNameW, GetWindowLongPtrW,
-    GetMessageW, GetWindowRect, GetClientRect, HWND_TOP, IsWindow, IsWindowVisible, MSG, PostQuitMessage,
-    RegisterClassExW, RegisterWindowMessageW, PostMessageW, SendMessageTimeoutW, SetParent, SetWindowLongPtrW,
-    SetWindowPos, TranslateMessage, WindowFromPoint, CS_HREDRAW, GWL_EXSTYLE, GWL_STYLE,
-    SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_SHOWWINDOW, WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS,
-    WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE, WM_DESTROY, WM_POWERBROADCAST,
+    FindWindowExW, GetAncestor, GetClassNameW, GetClientRect, GetMessageW, GetWindowLongPtrW,
+    GetWindowRect, IsWindow, IsWindowVisible, PostMessageW, PostQuitMessage, RegisterClassExW,
+    RegisterWindowMessageW, SetParent, SetWindowLongPtrW, SetWindowPos, TranslateMessage,
+    WindowFromPoint, CS_HREDRAW, GA_PARENT, GA_ROOT, GWL_EXSTYLE, GWL_STYLE, HWND_BOTTOM, HWND_TOP,
+    MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WM_DESTROY, WM_POWERBROADCAST,
+    WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+    WS_VISIBLE,
 };
 
 use crate::probe_log;
 
-/// Explorer 收到这条消息后会创建承载图标的 WorkerW 层。非公开协议，不保证各版本一致。
-const WM_SHELLDLL_DESKTOP: u32 = 0x052C;
 const PROGMAN: &str = "Progman";
 const WORKERW: &str = "WorkerW";
 const DEF_VIEW: &str = "SHELLDLL_DefView";
@@ -46,11 +46,11 @@ static SAVED: Mutex<Option<Rect>> = Mutex::new(None);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
-    /// 挂在 WorkerW 上（桌面图标层之后的那一层）。
+    /// 挂在 WorkerW 上——也就是 Explorer 现在放桌面图标与壁纸的那一层。
     WorkerW,
-    /// 没找到 WorkerW，直接挂 Progman。仍在桌面层，但可能与桌面图标重叠。
+    /// 图标层还在 Progman 里（没拆出 WorkerW），直接挂 Progman。
     Progman,
-    /// 拿不到桌面窗口，保持普通窗口。
+    /// 拿不到能收鼠标的桌面窗口，保持普通窗口。
     Plain,
 }
 
@@ -135,6 +135,50 @@ pub unsafe fn card_rect() -> Option<Rect> {
     }
 }
 
+/// 要不要试方案 A（挂进 Explorer 的桌面层）。
+///
+/// 默认关掉，走 DESIGN §5.2 方案 B：本机实测桌面层被两个第三方软件占着——
+/// 壁纸引擎的 WorkerW 是 `WS_EX_TRANSPARENT`（卡片看得见、点不着），
+/// 腾讯桌面整理（`TXMiniSkin`）在图标层宿主里压了一张全屏面板（卡片点得着但看不见）。
+/// 按 §5.2「方案 A 在关键场景不稳定就直接用 B，不牺牲可预测性」处理，留开关以便换机器复测。
+pub fn embed_requested() -> bool {
+    std::env::var_os("PERCH_DESKTOP_EMBED").is_some()
+}
+
+/// 方案 B：卡片留在普通窗口层，但压到应用窗口最底下——仍在所有应用之下、桌面之上。
+/// 只在启动和唤醒时压一次；之后不再干预，否则会把刚点开的卡片从她手底下抽走。
+pub unsafe fn settle_bottom() -> Layer {
+    let hwnd = card();
+    if hwnd.is_null() || IsWindow(hwnd) == 0 {
+        probe_log::note("[plain] 卡片窗口无效，位置交给窗口管理");
+        return Layer::Plain;
+    }
+    let ok = SetWindowPos(
+        hwnd,
+        HWND_BOTTOM,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+    );
+    probe_log::note(format!(
+        "[plain] 压到应用层最底 SetWindowPos={} 矩形={:?}",
+        ok != 0,
+        rect_of(hwnd)
+    ));
+    Layer::Plain
+}
+
+/// 按当前模式把卡片放回它该在的层。Explorer 重启、休眠唤醒后走这条路。
+pub unsafe fn reassert() -> Layer {
+    if embed_requested() {
+        embed(DEFAULT_MARGIN)
+    } else {
+        settle_bottom()
+    }
+}
+
 /// 当前的桌面层父窗口；未嵌入时 None。抓它可以看到自己这一层被合成成什么样。
 pub fn parent_hwnd() -> Option<HWND> {
     let h = parent();
@@ -149,78 +193,97 @@ fn parent() -> HWND {
     PARENT.load(Ordering::SeqCst) as HWND
 }
 
-/// 找到应当承载卡片的桌面窗口，返回 (父窗口, 走的是哪条路径)。
-unsafe fn find_desktop_parent() -> (Option<HWND>, String) {
-    let progman = FindWindowW(wide(PROGMAN).as_ptr(), std::ptr::null());
-    if progman.is_null() {
-        return (None, "找不到 Progman".to_string());
-    }
-    let mut result: usize = 0;
-    let sent = SendMessageTimeoutW(
-        progman,
-        WM_SHELLDLL_DESKTOP,
-        0,
-        0,
-        SMTO_ABORTIFHUNG,
-        1_000,
-        &mut result,
-    );
-    if sent == 0 {
-        probe_log::note("[layer] 0x052C 未被处理（Explorer 忙或不支持），继续找现有窗口");
-    }
+/// 一个桌面层候选窗口，带上「能不能收鼠标」需要的三个事实。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Host {
+    hwnd: HWND,
+    /// 类名是不是 WorkerW；Progman 为 false。
+    workerw: bool,
+    /// 直接子窗口里有 SHELLDLL_DefView —— 有它才说明这一层真的在画壁纸和图标，是桌面的正主。
+    hosts_icons: bool,
+    /// 带 WS_EX_TRANSPARENT：系统派发鼠标时整棵子树都不存在，卡片只看得见、点不着。
+    click_through: bool,
+    /// 可见且有面积。隐藏的小 WorkerW 是各进程的临时层，不能用。
+    usable: bool,
+}
 
-    // 路径 1：DefView 还在 Progman 里 → 用 Progman 之后的那个同级 WorkerW。
-    if !FindWindowExW(progman, null_mut(), wide(DEF_VIEW).as_ptr(), std::ptr::null()).is_null() {
-        let sibling = FindWindowExW(null_mut(), progman, wide(WORKERW).as_ptr(), std::ptr::null());
-        if !sibling.is_null() {
-            return (
-                Some(sibling),
-                "DefView∈Progman，取 Progman 之后的同级 WorkerW".to_string(),
-            );
-        }
-        return (
-            Some(progman),
-            "DefView∈Progman，没有同级 WorkerW，用 Progman".to_string(),
-        );
-    }
+struct Hosts(Vec<Host>);
 
-    // 路径 2：DefView 已搬进某个 WorkerW → 取那个 WorkerW 之后的同级 WorkerW。
-    struct Scan {
-        host: HWND,
+unsafe extern "system" fn collect_hosts(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let cls = class_of(hwnd);
+    if cls != PROGMAN && cls != WORKERW {
+        return 1;
     }
-    unsafe extern "system" fn probe(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        if !FindWindowExW(hwnd, null_mut(), wide(DEF_VIEW).as_ptr(), std::ptr::null()).is_null() {
-            (*(lparam as *mut Scan)).host = hwnd;
-            return 0;
-        }
-        1
-    }
-    let mut scan = Scan { host: null_mut() };
+    let out = &mut *(lparam as *mut Hosts);
+    let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+    let area = rect_of(hwnd);
+    out.0.push(Host {
+        hwnd,
+        workerw: cls == WORKERW,
+        hosts_icons: !FindWindowExW(hwnd, null_mut(), wide(DEF_VIEW).as_ptr(), std::ptr::null())
+            .is_null(),
+        click_through: ex & WS_EX_TRANSPARENT != 0,
+        usable: IsWindowVisible(hwnd) != 0 && area.is_some_and(|r| r.w > 0 && r.h > 0),
+    });
+    1
+}
+
+unsafe fn desktop_hosts() -> Vec<Host> {
+    let mut sink = Hosts(Vec::new());
     EnumWindows(
-        Some(probe as unsafe extern "system" fn(HWND, LPARAM) -> BOOL),
-        &mut scan as *mut Scan as LPARAM,
+        Some(collect_hosts as unsafe extern "system" fn(HWND, LPARAM) -> BOOL),
+        &mut sink as *mut Hosts as LPARAM,
     );
-    if scan.host.is_null() {
-        return (None, "两条路径都没找到 SHELLDLL_DefView".to_string());
+    sink.0
+}
+
+/// 从候选里挑宿主：先排掉收不到鼠标和不可见的，再按「图标层的宿主 > Progman > 其余任意」排。
+/// 拆成纯函数是因为真 WorkerW 句柄在测试里造不出来，只能拿假候选喂。
+fn pick_host(hosts: &[Host]) -> Option<Host> {
+    let solid: Vec<Host> = hosts
+        .iter()
+        .copied()
+        .filter(|h| h.usable && !h.click_through)
+        .collect();
+    solid
+        .iter()
+        .find(|h| h.hosts_icons)
+        .or_else(|| solid.iter().find(|h| !h.workerw))
+        .or_else(|| solid.first())
+        .copied()
+}
+
+/// 找到应当承载卡片的桌面窗口，返回 (候选, 走的是哪条路)。
+///
+/// 只按「这一层是不是图标层的宿主、它穿不穿透」挑，不按 z 序猜：实时壁纸类软件
+/// （Wallpaper Engine 等）会自己建一个带 `WS_EX_TRANSPARENT` 的 WorkerW 排在图标层后面，
+/// 照 z 序取后继就会挂进穿透层，症状正是「卡片看得见但点不动」。
+unsafe fn find_desktop_parent() -> (Option<Host>, String) {
+    let hosts = desktop_hosts();
+    if hosts.is_empty() {
+        return (None, "桌面里找不到 Progman / WorkerW".to_string());
     }
-    let host_class = class_of(scan.host);
-    let sibling = FindWindowExW(null_mut(), scan.host, wide(WORKERW).as_ptr(), std::ptr::null());
-    if !sibling.is_null() {
+    for h in hosts.iter().filter(|h| h.click_through) {
+        probe_log::note(format!(
+            "[layer] 拒掉 {:?}（{}）：WS_EX_TRANSPARENT，挂进去收不到鼠标",
+            h.hwnd,
+            class_of(h.hwnd)
+        ));
+    }
+    let Some(host) = pick_host(&hosts) else {
         return (
-            Some(sibling),
-            format!("DefView∈{host_class}，取其后继 WorkerW"),
+            None,
+            format!("{} 个桌面候选窗口全都不可用（不可见或穿透）", hosts.len()),
         );
-    }
-    let layer = if host_class == WORKERW {
-        Layer::WorkerW
-    } else {
-        Layer::Progman
     };
+    let class = if host.workerw { WORKERW } else { PROGMAN };
     (
-        Some(scan.host),
+        Some(host),
         format!(
-            "DefView∈{host_class}，没有后继窗口，直接用它（判为 {}）",
-            layer.label()
+            "{} 个候选里选 {class} {:?}（图标层宿主={}），卡片作为它最上面的子窗口",
+            hosts.len(),
+            host.hwnd,
+            host.hosts_icons
         ),
     )
 }
@@ -241,12 +304,13 @@ pub unsafe fn embed(margin: i32) -> Layer {
         return Layer::Plain;
     };
     let (found, how) = find_desktop_parent();
-    let Some(new_parent) = found else {
+    let Some(host) = found else {
         probe_log::note(format!("[layer] 回退普通窗口：{how}"));
         return Layer::Plain;
     };
+    let new_parent = host.hwnd;
     let parent_class = class_of(new_parent);
-    let layer = if parent_class == WORKERW {
+    let layer = if host.workerw {
         Layer::WorkerW
     } else {
         Layer::Progman
@@ -271,9 +335,21 @@ pub unsafe fn embed(margin: i32) -> Layer {
 
     let mut target = desktop_position(new_parent, card_hwnd, before, margin);
     if let Some(force) = take_forced_rect() {
-        let p = rect_of(new_parent).unwrap_or(Rect { x: 0, y: 0, w: 0, h: 0 });
-        target = Rect { x: force.x - p.x, y: force.y - p.y, w: force.w, h: force.h };
-        probe_log::note(format!("[layer] 按实测要求强落屏幕矩形 {force:?} → 父内 {target:?}"));
+        let p = rect_of(new_parent).unwrap_or(Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        });
+        target = Rect {
+            x: force.x - p.x,
+            y: force.y - p.y,
+            w: force.w,
+            h: force.h,
+        };
+        probe_log::note(format!(
+            "[layer] 按实测要求强落屏幕矩形 {force:?} → 父内 {target:?}"
+        ));
     }
     let moved = SetWindowPos(
         card_hwnd,
@@ -291,6 +367,16 @@ pub unsafe fn embed(margin: i32) -> Layer {
         GetDpiForWindow(card_hwnd)
     ));
     log_style_snapshot(card_hwnd);
+    // 选的时候已经筛过穿透层，这里再验一次成品：宿主可能被第三方软件事后改样式。
+    // 根窗口穿透就还原，宁可当普通窗口，也不留一张点不动的卡片。
+    let root = GetAncestor(card_hwnd, GA_ROOT);
+    if GetWindowLongPtrW(root, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT != 0 {
+        probe_log::note(format!(
+            "[layer] 嵌入后根窗口 {root:?} 仍穿透 → 还原为普通窗口"
+        ));
+        unembed();
+        return Layer::Plain;
+    }
     layer
 }
 
@@ -444,7 +530,9 @@ pub unsafe fn find_clear_rect(w: i32, h: i32) -> Option<Rect> {
         }
         y += step;
     }
-    probe_log::note(format!("[clear] 装不下 {w}x{h}：屏幕合成实测只能对着被挡住的桌面做"));
+    probe_log::note(format!(
+        "[clear] 装不下 {w}x{h}：屏幕合成实测只能对着被挡住的桌面做"
+    ));
     None
 }
 
@@ -458,10 +546,7 @@ unsafe fn log_style_snapshot(hwnd: HWND) {
         style & WS_VISIBLE != 0,
         IsWindowVisible(hwnd) != 0,
         GetAncestor(hwnd, GA_PARENT),
-        windows_sys::Win32::UI::WindowsAndMessaging::GetAncestor(
-            hwnd,
-            windows_sys::Win32::UI::WindowsAndMessaging::GA_ROOT
-        )
+        GetAncestor(hwnd, GA_ROOT)
     ));
     let mut c = RECT {
         left: 0,
@@ -492,9 +577,13 @@ pub unsafe fn status_line() -> String {
     } else {
         Layer::Progman
     };
+    let root = GetAncestor(hwnd, GA_ROOT);
+    let click_through = GetWindowLongPtrW(root, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT != 0;
     format!(
-        "层={} 父={p:?} 矩形={:?} dpi={} 可见={}",
+        "层={} 父={p:?} 根={root:?}/{} 穿透={} 矩形={:?} dpi={} 可见={}",
         layer.label(),
+        class_of(root),
+        click_through,
         rect_of(hwnd),
         GetDpiForWindow(hwnd),
         IsWindowVisible(hwnd) != 0
@@ -530,7 +619,7 @@ pub unsafe fn hit_test_line() -> String {
     let root_of_top = if top.is_null() {
         null_mut()
     } else {
-        GetAncestor(top, windows_sys::Win32::UI::WindowsAndMessaging::GA_ROOT)
+        GetAncestor(top, GA_ROOT)
     };
     let child = ChildWindowFromPoint(hwnd, client);
     format!(
@@ -576,8 +665,8 @@ unsafe extern "system" fn watch_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if msg == taskbar_created_id() {
-        probe_log::note("[watch] 收到 TaskbarCreated → 重新嵌入");
-        embed(DEFAULT_MARGIN);
+        probe_log::note("[watch] 收到 TaskbarCreated → 按当前模式重新落层");
+        reassert();
         return 0;
     }
     if msg == WM_POWERBROADCAST {
@@ -590,8 +679,8 @@ unsafe extern "system" fn watch_proc(
         } else {
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         };
-        probe_log::note(format!("[watch] 电源事件：{kind} → 重挂检查"));
-        embed(DEFAULT_MARGIN);
+        probe_log::note(format!("[watch] 电源事件：{kind} → 按当前模式重新落层"));
+        reassert();
         return 1;
     }
     if msg == WM_DESTROY {
@@ -693,4 +782,61 @@ pub unsafe fn cycle() -> &'static str {
     }
     unembed();
     embed(DEFAULT_MARGIN).label()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(id: usize, workerw: bool, hosts_icons: bool, click_through: bool) -> Host {
+        Host {
+            hwnd: id as *mut c_void,
+            workerw,
+            hosts_icons,
+            click_through,
+            usable: true,
+        }
+    }
+
+    /// 本机实测的形状：图标层宿主之外还排着一个壁纸引擎的穿透 WorkerW。
+    #[test]
+    fn click_through_layer_is_never_a_host() {
+        let icons = candidate(1, true, true, false);
+        let wallpaper = candidate(2, true, false, true);
+        assert_eq!(pick_host(&[wallpaper, icons]), Some(icons));
+    }
+
+    /// 图标层被拆进 WorkerW（开了壁纸幻灯片时的形状）→ 挂那个 WorkerW，与枚举先后无关。
+    #[test]
+    fn whoever_hosts_the_icons_wins_regardless_of_class() {
+        let progman = candidate(1, false, false, false);
+        let workerw = candidate(2, true, true, false);
+        assert_eq!(pick_host(&[progman, workerw]), Some(workerw));
+        assert_eq!(pick_host(&[workerw, progman]), Some(workerw));
+    }
+
+    #[test]
+    fn progman_is_the_host_while_icons_live_there() {
+        let progman = candidate(1, false, true, false);
+        let spare = candidate(2, true, false, false);
+        assert_eq!(pick_host(&[spare, progman]), Some(progman));
+    }
+
+    /// 全都穿透时宁可回退普通窗口，也不交出一张点不动的卡片。
+    #[test]
+    fn no_host_when_every_layer_is_click_through() {
+        let a = candidate(1, true, true, true);
+        let b = candidate(2, false, false, true);
+        assert_eq!(pick_host(&[a, b]), None);
+    }
+
+    #[test]
+    fn hidden_candidates_are_not_picked() {
+        let hidden = Host {
+            usable: false,
+            ..candidate(1, true, true, false)
+        };
+        let progman = candidate(2, false, true, false);
+        assert_eq!(pick_host(&[hidden, progman]), Some(progman));
+    }
 }

@@ -14,8 +14,10 @@
 
 ## 2. 结论一句话
 
-**方案 A 可行**：卡片能挂进 WorkerW，WebView2 在桌面层里照常渲染、JS 照常跑、子窗口命中链完整、
-Explorer 广播后的重挂路径也通。两个必须写进正式实现的前提：**句柄只能缓存一次**、**父窗口被销毁时要能重建窗口**。
+**方案 A 在本机（装了壁纸引擎 + 腾讯桌面整理）不可行，正式实现走方案 B**（2026-10-27 复测，见 §7）。
+原因不是"挂不上去"，而是挂上去之后**看得见与点得着不能同时得到**：桌面层最顶的位置被第三方软件占着。
+§3 的原始记录保留在下面——那批前提（句柄只认一次、父窗口销毁要重建、坐标按父窗口相对、热区按客户区算）
+在方案 A 重新启用时仍然成立，只是方案 B 用不上。
 
 ## 3. 逐项实测证据
 
@@ -96,7 +98,37 @@ Explorer 广播后的重挂路径也通。两个必须写进正式实现的前�
 | 150% 缩放 / 双屏 | 换到那台机器或改缩放 | 尺寸与位置是否按 DPI 走、跨屏是否跟对显示器 |
 | 长跑 | 挂着用一整天 | 内存不涨、卡片不白屏 |
 
-## 6. 探针自身的坑（留给下一个读代码的人）
+## 7. 复测：正式前端接上之后，方案 A 被判不可行（同日）
+
+前端（`src/`）接上、Rust 写通道打通之后，第一次在真机上让她操作，反馈是「卡片看得见但点不动」。
+用 `WindowFromPoint` + `EnumChildWindows` 直接量桌面层的 z 序，本机 672 个顶层窗口里有 **19 个 `Progman`/`WorkerW` 候选**，
+其中真正有用的三个：
+
+| 层 | 扩展样式 | 直接子窗口（从前到后） | 卡片挂进去的结果 |
+| --- | --- | --- | --- |
+| `WorkerW/0x501ba` | `WS_EX_TOOLWINDOW` | `TXMiniSkin`(1920×1079) → `SHELLDLL_DefView` → `SysListView32` | **点得着、看不见**：腾讯桌面整理的面板压在我们上面，且 1 秒内会抢回去 |
+| `WorkerW/0x301d6` | **`WS_EX_TRANSPARENT`** + `WS_EX_NOACTIVATE` | `WPEDesktopDX11Window`（壁纸引擎） | **看得见、点不着**：穿透层在鼠标派发时整棵子树都不存在 |
+| `Progman/0x1025a` | 无 | （空，DefView 已搬走） | 在所有桌面层之下，卡片会被壁纸盖住 |
+
+旧代码按 z 序取「图标层宿主之后的同级 WorkerW」，在有实时壁纸软件的机器上取到的正是第二行那个穿透层。
+改成「筛掉穿透层、挂进图标层宿主并置为最上子窗口」之后（`pick_host()` + 5 个单元测试），症状从「点不动」变成「看不见」——
+`SetWindowPos(HWND_TOP)` 确实把我们抬到了 `SHELLDLL_DefView` 之上，但 `TXMiniSkin` 又压回我们上面。
+**要赢只能去改别人家窗口的 z 序或样式，这个不能拿来做产品**，于是按 §5.2 的预授权落回方案 B。
+
+方案 B 实测（普通窗口，启动时 `SetWindowPos(HWND_BOTTOM)`，`alwaysOnTop:false`）：
+
+- 她本人实机确认：**最小化别的窗口、按 `Win+D` 之后卡片都还在**，并且**点得动**（打卡按钮有反应）。
+- 同一张卡片被 WPS 的最大化窗口正常盖住：`WindowFromPoint` 四个点全部归 `OpusApp`(WPS)，符合「桌面层不是置顶」。
+- 心跳日志：`层=普通窗口 父=0x0 根=…/Tauri Window 穿透=false`。
+- **还没弄清**：`GetWindowLong(GWL_EXSTYLE)` 读回来是 `0x00040110` = `WS_EX_APPWINDOW|WS_EX_WINDOWEDGE|WS_EX_ACCEPTFILES`，
+  既没有 `WS_EX_TOOLWINDOW(0x80)` 也没有 `WS_EX_NOACTIVATE`——说明 `skipTaskbar` 实际上没落到窗口样式上，
+  「Win+D 吹不掉」的真正原因还不是当初猜的"工具窗口被显示桌面跳过"。这条待查，不影响功能但会影响任务栏。
+- **还没测**：打字（需要焦点）、拖动、真·Explorer 重启、睡眠唤醒、150%/双屏、长跑。
+
+代码入口：`desktop_layer::embed_requested()`（`PERCH_DESKTOP_EMBED=1` 才试方案 A，方便换机器复测）、
+`desktop_layer::settle_bottom()`、`desktop_layer::reassert()`（看门狗与电源事件按当前模式落层，不会偷偷把卡片塞回桌面层）。
+
+## 8. 探针自身的坑（留给下一个读代码的人）
 
 - `PrintWindow` 必须带 `PW_RENDERFULLCONTENT`，否则 WebView2 内容区是空的；windows-sys 里这个常量在 `Win32_Storage_Xps` feature 下。
 - 手写 BMP 时 `biHeight` 用负数（自上而下）会被一些看图软件解释反（Pillow 直接上下颠倒显示）。

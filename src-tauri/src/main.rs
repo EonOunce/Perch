@@ -100,7 +100,10 @@ fn probe_shift(window: WebviewWindow) -> String {
         .unwrap_or((0, 0));
     let after = (before.0 + 20, before.1 + 20);
     match window.set_position(PhysicalPosition::new(after.0, after.1)) {
-        Ok(()) => format!("Tauri set_position {before:?} → {after:?}；实际 {:?}", window.outer_position().map(|p| (p.x, p.y))),
+        Ok(()) => format!(
+            "Tauri set_position {before:?} → {after:?}；实际 {:?}",
+            window.outer_position().map(|p| (p.x, p.y))
+        ),
         Err(e) => format!("移动失败: {e}"),
     }
 }
@@ -147,7 +150,9 @@ fn screen_shot(label: &str, pad: i32) {
     let out = dir.join(format!("screen_{label}.bmp"));
     match unsafe { desktop_layer::card_rect() } {
         Some(r) => {
-            let line = unsafe { capture::screen(r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, &out) };
+            let line = unsafe {
+                capture::screen(r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, &out)
+            };
             probe_log::note(format!("[screen:{label}] {line}"));
         }
         None => probe_log::note(format!("[screen:{label}] 拿不到卡片矩形")),
@@ -164,7 +169,9 @@ fn spawn_shot_sequence(app: &AppHandle) {
         shot("01_plain");
 
         // 桌面上有别的窗口压着时，右下角根本看不见，先找一个空位。
-        let clear = unsafe { desktop_layer::card_rect().and_then(|c| desktop_layer::find_clear_rect(c.w, c.h)) };
+        let clear = unsafe {
+            desktop_layer::card_rect().and_then(|c| desktop_layer::find_clear_rect(c.w, c.h))
+        };
         if let Some(r) = clear {
             let h = handle.clone();
             on_main(&handle, move || {
@@ -268,9 +275,14 @@ fn main() {
                     if std::env::var_os("PERCH_SHOTS").is_some() {
                         probe_log::note("[boot] PERCH_SHOTS 已设：先不嵌入，等三连抓自己走嵌入");
                         spawn_shot_sequence(app.handle());
-                    } else {
+                    } else if desktop_layer::embed_requested() {
                         let layer = unsafe { desktop_layer::embed(desktop_layer::DEFAULT_MARGIN) };
-                        probe_log::note(format!("[boot] 初始嵌入结果：{}", layer.label()));
+                        probe_log::note(format!("[boot] 方案 A，初始嵌入结果：{}", layer.label()));
+                    } else {
+                        unsafe { desktop_layer::settle_bottom() };
+                        probe_log::note(
+                            "[boot] 方案 B：普通窗口压到应用层最底（§5.2，桌面层被第三方软件占着）",
+                        );
                     }
                 }
                 None => probe_log::note("[boot] 按标题找不到卡片窗口，桌面层测试没跑起来"),
