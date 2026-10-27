@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-Hans-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>栖迟</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-perch" viewBox="0 0 24 24">
+    <path d="M3.4 18.4c4.9 0 7.9-2.2 9.7-5.7"/>
+    <path d="M8.2 20.1c3.7 0 6.8-1.9 8.8-5.3"/>
+    <circle cx="16.8" cy="7.2" r="2.2"/>
+    <path d="M18.7 7.4c1.6.1 2.7 1 3.5 2.4-1.4.4-2.7.1-3.8-.7"/>
+    <circle cx="17.5" cy="6.7" r=".28" fill="currentColor" stroke="none"/>
+  </symbol>
+  <symbol id="i-book" viewBox="0 0 24 24">
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z"/>
+    <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z"/>
+  </symbol>
+  <symbol id="i-walk" viewBox="0 0 24 24">
+    <circle cx="13.6" cy="4.6" r="2"/>
+    <path d="M13.9 8.2c-1.9.7-2.6 2.4-2.7 4.3l-.5 4.4"/>
+    <path d="M11.4 10.4 8 12.6l-1.4 3.4"/>
+    <path d="m14 12.8 2.6 2.2.9 4.6"/>
+  </symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24">
+    <path d="M15.6 3.4a8.6 8.6 0 1 0 5 11.2A9 9 0 0 1 15.6 3.4Z"/>
+  </symbol>
+  <symbol id="i-sprout" viewBox="0 0 24 24">
+    <path d="M20 4c-8.2 0-13.2 4-13.2 10A5.8 5.8 0 0 0 12.6 20C18.6 20 20 10.9 20 4Z"/>
+    <path d="M4 20c2.7-5.8 6.7-9 11.8-11"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.3 4.3L19 7.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+  </symbol>
+</svg>
+
+<main class="card" id="card">
+  <section class="card-head" data-tauri-drag-region>
+    <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
+    <span class="brand-cn">栖迟</span>
+  </section>
+
+  <div class="scroller" id="scroller">
+    <header class="date-block">
+      <h1 class="date-title" id="dateTitle">—</h1>
+      <p class="date-eyebrow" id="weekLine">—</p>
+    </header>
+
+    <p class="banner" id="storageBanner" hidden></p>
+
+    <section class="zone review" id="reviewZone" hidden aria-live="polite"></section>
+
+    <section class="zone">
+      <div class="zone-head">
+        <h2>习惯</h2>
+        <button class="zone-action" id="addHabitTop" type="button" hidden>
+          <svg class="icon"><use href="#i-plus"/></svg><span>新增</span>
+        </button>
+      </div>
+      <div class="habit-list" id="habitList"></div>
+    </section>
+
+    <section class="zone">
+      <div class="zone-head"><h2>心情</h2></div>
+      <div class="mood" id="moodBox">
+        <div class="mood-head">
+          <span class="mood-face is-unset" id="moodFace"></span>
+          <span class="mood-name" id="moodName">今天还没记</span>
+          <span class="mood-value" id="moodValue">—</span>
+        </div>
+        <input type="range" id="moodSlider" min="0" max="100" step="1" value="50"
+               aria-label="今天的心情，0 到 100 百分比">
+      </div>
+    </section>
+
+    <section class="zone compose">
+      <div class="zone-head"><h2>碎碎念</h2></div>
+      <textarea id="noteInput" rows="2" placeholder="写下一句，今天的、刚才的，都可以。"
+                aria-label="碎碎念"></textarea>
+      <div class="compose-foot">
+        <span class="tag-preview" id="tagPreview" aria-live="polite"></span>
+        <button class="save" id="noteSave" type="button" disabled>记下</button>
+      </div>
+    </section>
+
+    <section class="zone">
+      <div class="zone-head">
+        <h2>记录</h2>
+        <span class="zone-note" id="noteCount"></span>
+      </div>
+      <div class="note-list" id="noteList"></div>
+    </section>
+  </div>
+
+  <div class="fade" aria-hidden="true"></div>
+
+  <div class="sheet" id="sheet" hidden>
+    <form class="sheet-body" id="habitForm">
+      <div class="sheet-head">
+        <h3>新增习惯</h3>
+        <button class="icon-btn" id="sheetClose" type="button" aria-label="关闭表单">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <label class="field">
+        <span>名称<em>必填</em></span>
+        <input id="fName" maxlength="24" placeholder="散步" required>
+      </label>
+
+      <label class="field">
+        <span>怎样算完成一次</span>
+        <textarea id="fDef" rows="2" placeholder="留空也可以"></textarea>
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>单位</span>
+          <input id="fUnit" maxlength="6" placeholder="次">
+        </label>
+        <label class="field">
+          <span>每次</span>
+          <input id="fCount" type="number" min="1" max="99" step="1" placeholder="1">
+        </label>
+      </div>
+
+      <div class="field">
+        <span>什么时候确认</span>
+        <div class="seg" id="fTiming" role="group" aria-label="确认时机">
+          <button type="button" data-value="sameDay" class="is-on">当天打卡</button>
+          <button type="button" data-value="nextDay">次日确认</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span>目标</span>
+        <div class="seg" id="fMode" role="group" aria-label="目标方式">
+          <button type="button" data-value="weekly" class="is-on">按周计</button>
+          <button type="button" data-value="recordOnly">只记录</button>
+        </div>
+      </div>
+
+      <label class="field" id="fWeeklyWrap">
+        <span>每周几</span>
+        <input id="fWeekly" type="number" min="1" max="7" step="1" placeholder="3">
+      </label>
+
+      <div class="sheet-foot">
+        <button class="save" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <p class="toast" id="toast" aria-live="polite"></p>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
