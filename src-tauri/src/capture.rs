@@ -8,8 +8,8 @@ use std::path::Path;
 
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, DIB_RGB_COLORS, GetDC,
-    ReleaseDC, SelectObject, SRCCOPY, BITMAPINFO, BITMAPINFOHEADER, RGBQUAD,
+    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
+    SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, RGBQUAD, SRCCOPY,
 };
 use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, PW_RENDERFULLCONTENT};
@@ -58,7 +58,14 @@ pub unsafe fn capture(hwnd: HWND, out: &Path) -> String {
         }],
     };
     let mut bits: *mut c_void = std::ptr::null_mut();
-    let bmp = CreateDIBSection(mem_dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0);
+    let bmp = CreateDIBSection(
+        mem_dc,
+        &info,
+        DIB_RGB_COLORS,
+        &mut bits,
+        std::ptr::null_mut(),
+        0,
+    );
     if bmp.is_null() || bits.is_null() {
         DeleteDC(mem_dc);
         ReleaseDC(std::ptr::null_mut(), screen_dc);
@@ -69,7 +76,9 @@ pub unsafe fn capture(hwnd: HWND, out: &Path) -> String {
 
     let pixels = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize);
     let stats = pixel_stats(pixels);
-    let written = write_bmp(out, w, h, pixels).map(|_| String::new()).unwrap_or_else(|e| format!(" 写文件失败 {e}"));
+    let written = write_bmp(out, w, h, pixels)
+        .map(|_| String::new())
+        .unwrap_or_else(|e| format!(" 写文件失败 {e}"));
 
     SelectObject(mem_dc, old);
     DeleteObject(bmp as *mut c_void);
@@ -117,24 +126,21 @@ pub unsafe fn screen(x: i32, y: i32, w: i32, h: i32, out: &Path) -> String {
         }],
     };
     let mut bits: *mut c_void = std::ptr::null_mut();
-    let bmp = CreateDIBSection(mem_dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0);
+    let bmp = CreateDIBSection(
+        mem_dc,
+        &info,
+        DIB_RGB_COLORS,
+        &mut bits,
+        std::ptr::null_mut(),
+        0,
+    );
     if bmp.is_null() || bits.is_null() {
         DeleteDC(mem_dc);
         ReleaseDC(std::ptr::null_mut(), screen_dc);
         return "CreateDIBSection 失败".to_string();
     }
     let old = SelectObject(mem_dc, bmp as *mut c_void);
-    let blted = BitBlt(
-        mem_dc,
-        0,
-        0,
-        w,
-        h,
-        screen_dc,
-        x,
-        y,
-        SRCCOPY,
-    );
+    let blted = BitBlt(mem_dc, 0, 0, w, h, screen_dc, x, y, SRCCOPY);
     let pixels = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize);
     let written = write_bmp(out, w, h, pixels)
         .map(|_| String::new())
