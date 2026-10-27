@@ -235,3 +235,40 @@ UI Automation 枚举 `Shell_TrayWnd` 与 `TopLevelWindowForOverflowXamlIsland` �
 - **跨窗口刷新**：Rust 侧 `app.emit("perch:changed", ())` 广播，两个 webview 各自 `listen`；
   小窗存完自己收起，卡片重新取一次数据。口径仍然只在 `perch-core` 一处。
 
+## 13. 开机自启（2026-10-28）
+
+做法：只写当前用户的 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `Perch`，
+数据是带引号的整条 exe 路径。不装服务、不进任务计划程序、不碰 `HKLM`（那要管理员）。
+`windows-sys` 这边 `RegCreateKeyExW` 用不了——它的 `SECURITY_ATTRIBUTES` 参数在 `Win32_Security`，
+而 `Win32_System_Registry` feature 不把它带进来；`Run` 这键必然已存在，所以 `RegOpenKeyExW` 够了。
+
+- **Win11 的托盘弹层不给 `CheckMenuItem` 画对勾。** 实测：UI Automation 报
+  `patterns=InvokePatternIdentifiers.Pattern,TogglePatternIdentifiers.Pattern toggle=On`，
+  但抓屏 `target/tray-menu.png` 上「开机自启」和别的条目长得一模一样，肉眼分不出开没开。
+  所以**状态写进文字**：开着是「开机自启（已开启）」，关着是「开机自启」（`shell::autostart_label`，有单测）。
+  勾选位仍然保留，读屏软件靠它报状态。以后凡是托盘里的勾选项都按这条办。
+- **勾选项的状态只有一处来源**：`autostart::is_on` 读设置，菜单每次需要时整份重建
+  （`shell::refresh_menu`）。重建只在建菜单那一刻碰主线程，不跨线程存菜单句柄。
+  托盘的 `on_menu_event` 注册在全局监听里，用相同 id 重建菜单后派发照常生效（实测点得动）。
+- **先改系统、后改设置**：`commit()` 里注册表成功才写 `settings.autostart`。
+  反过来的话界面会出现一个「开着」但注册表里没有的勾选框，那才是真骗人。
+- **只问一次由数据保证，不只由界面保证**：`autostart_asked` 落在 `settings.json`，
+  开与关都把它钉成 true。选「先不用」走 `mark_asked`，**不碰注册表**——
+  走 `commit(false)` 会顺手删掉本来存在的启动项，那不是她这一次要的事。
+- **真机实测清单**（dev 实例 + `target/devdata` 隔离，注册表是真实位置）：
+  - 首次启动（`autostartAsked:false`）问答浮层出现，折叠卡 360×170 里浮层体 358×130、
+    `scrollHeight` 129 → 不溢出、不滚动，焦点在「先不用」上（`target/ask-collapsed.png`）；
+  - 真实点「开机就打开」→ `HKCU\...\Run\Perch = "…\target\debug\perch.exe"`（独立 PowerShell 读回）、
+    `settings.json` 变 `autostart:true, autostartAsked:true`、日志 `[tray] 开机自启勾选已刷新`；
+  - 真实右键托盘 → 菜单文字是「开机自启（已开启）」；真实点这一项 → 注册表值消失、
+    `settings.json` 回 `autostart:false`、重开菜单文字回「开机自启」；
+  - 预置一个哨兵启动项 `Perch = "D:\Old\Perch\perch.exe"` + `autostartAsked:false` 重启 →
+    问答出现，真实点「先不用」→ 哨兵值**原样还在**（没删也没重写），`autostartAsked:true`；
+  - 再重启 → 不再问（`shown:false`，焦点回到卡片的展开按钮）；
+  - 问答开着时按 Esc → 浮层收起但 `autostartAsked` 仍是 false，下次开机还会问（Esc 不等于回答）。
+  - **测试结束后注册表已还原**：`Run` 下只剩测试前那 7 项（OneDrive、DeskGo、
+    electron.app.SakuraCat、Nutstore、ctfmon、MuMuPlayerService、MicrosoftEdgeAutoLaunch_…），
+    **没有 `Perch`**。开发构建的启动项不留在她机器上。
+- **没验证的**：真机重启后自启是否真的把她带回原来的位置——那要求留一个 dev 构建的启动项并重启系统，
+  与「不在她机器上留开发启动项」冲突，所以只做注册表层面的等价验证（值名、引号化路径、系统会读这一项是公开行为）。
+  打包版装到 `Program Files` 后的路径由 `std::env::current_exe()` 现取，不写死。

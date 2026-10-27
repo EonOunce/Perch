@@ -662,12 +662,15 @@ fn build_stats(
     }
 }
 
-/// 折叠态开机时要知道的两件事。界面只有折叠/长条两根开关，位置由窗口事件自己记（main.rs）。
+/// 开机时界面要知道的几件本地设置。折叠与长条是两根开关（§2.8），位置由窗口事件自己记（main.rs）。
+/// 自启两项给首次启动那一次问答用：`autostartAsked` 为真就再也不问（§12 #6）。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrefsView {
     pub collapsed: bool,
     pub strip_rows: bool,
+    pub autostart: bool,
+    pub autostart_asked: bool,
 }
 
 #[tauri::command]
@@ -678,11 +681,16 @@ pub fn prefs_get(state: tauri::State<'_, SharedPrefs>) -> PrefsView {
             Ok(PrefsView {
                 collapsed: settings.collapsed,
                 strip_rows: settings.strip_rows,
+                autostart: settings.autostart,
+                autostart_asked: settings.autostart_asked,
             })
         })
+        // 设置读不出来时按默认值画：折叠展开、长条摊开、不自启、还没问过。
         .unwrap_or(PrefsView {
             collapsed: false,
             strip_rows: true,
+            autostart: false,
+            autostart_asked: false,
         })
 }
 
@@ -1029,17 +1037,21 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// 前端读的是 `prefs.collapsed` 与 `prefs.stripRows`（collapse.js 开机流程），
-    /// 字段名拼错不会编译报错，所以钉在这里。
+    /// 前端读的是 `prefs.collapsed`、`prefs.stripRows`、`prefs.autostartAsked`
+    /// （collapse.js 开机流程、autostart.js 首启问答），字段名拼错不会编译报错，所以钉在这里。
     #[test]
     fn the_prefs_view_uses_the_field_names_the_scripts_read() {
         let json = serde_json::to_value(PrefsView {
             collapsed: true,
             strip_rows: false,
+            autostart: true,
+            autostart_asked: false,
         })
         .unwrap();
         assert_eq!(json["collapsed"], true);
         assert_eq!(json["stripRows"], false);
+        assert_eq!(json["autostart"], true);
+        assert_eq!(json["autostartAsked"], false);
     }
 
     /// 统计视图的输入契约：非法范围变成一句能就地显示的话，而不是一档悄悄替换掉的默认值；

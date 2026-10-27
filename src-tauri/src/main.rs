@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod capture;
 mod card_view;
 mod clock;
@@ -348,8 +349,8 @@ fn probe_quit(app: AppHandle) {
     app.exit(0);
 }
 
-/// 托盘那两条路径的探针入口：真机点托盘图标要靠 UI 自动化找图标位置，
-/// 先用它量「提到前台 → 8 秒后自己还回桌面层」与「显示/隐藏」到底有没有生效。
+/// 托盘菜单那几项的探针入口：真机点托盘图标要靠 UI 自动化找图标位置，
+/// 先用它量「提到前台 → 8 秒后自己还回桌面层」「显示/隐藏」与「开机自启」到底有没有生效。
 #[tauri::command]
 fn probe_tray(action: String, app: AppHandle) -> &'static str {
     if std::env::var_os("PERCH_PROBE").is_none() {
@@ -358,6 +359,8 @@ fn probe_tray(action: String, app: AppHandle) -> &'static str {
     match action.as_str() {
         "raise" => shell::raise_temporary(&app),
         "toggle" => shell::toggle_visible(&app),
+        // 托盘菜单里那一项的真实动作：走与菜单事件完全相同的一条路。
+        "autostart" => autostart::toggle(&app),
         other => {
             probe_log::note(format!("[tray] 探针：未知动作 {other}"));
             return "未知动作";
@@ -514,6 +517,8 @@ fn main() {
             commands::stats_state,
             commands::prefs_get,
             commands::prefs_set,
+            autostart::autostart_set,
+            autostart::autostart_decline,
             ui_ready,
             card_view::card_set_view,
             card_view::card_target_size,

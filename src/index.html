@@ -243,6 +243,21 @@
     </form>
   </div>
 
+  <!-- 开机自启的首次一问（DESIGN §5.3、§12 #6）：默认关，只问这一次。
+       两个答案都算回答；按 Esc 走开不算，下次开机还会问。之后再改走托盘菜单里那一项。 -->
+  <div class="sheet" id="askSheet" hidden>
+    <div class="sheet-body">
+      <div class="sheet-head">
+        <h3>开机后让卡片还在桌上？</h3>
+      </div>
+      <p class="sheet-hint">打开后，栖迟会在你开机时回到原来的位置。不打开也行，之后想开在托盘菜单里点「开机自启」就够了。</p>
+      <div class="sheet-foot">
+        <button class="text-btn" id="askLater" type="button">先不用</button>
+        <button class="save" id="askOn" type="button">开机就打开</button>
+      </div>
+    </div>
+  </div>
+
   <div class="sheet" id="sheet" hidden>
     <form class="sheet-body" id="habitForm">
       <div class="sheet-head">
@@ -317,5 +332,6 @@
 <script src="records.js"></script>
 <script src="stats.js"></script>
 <script src="collapse.js"></script>
+<script src="autostart.js"></script>
 </body>
 </html>

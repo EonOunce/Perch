@@ -6,9 +6,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::probe_log;
-use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Manager, WebviewWindow, Wry};
 
 /// 提到前台待多久。8 秒够看清卡片在不在、点两下，又不至于变成事实上的置顶。
 pub const RAISE_MS: u64 = 8_000;
@@ -16,6 +16,7 @@ pub const RAISE_MS: u64 = 8_000;
 pub const TRAY_ID: &str = "perch-tray";
 pub const ID_QUICK: &str = "quick-record";
 pub const ID_VISIBLE: &str = "toggle-visible";
+pub const ID_AUTOSTART: &str = "autostart";
 pub const ID_QUIT: &str = "quit";
 
 /// 第几次「提到前台」。同一时刻只认最新那一次。
@@ -82,20 +83,39 @@ pub fn toggle_visible(app: &AppHandle) {
     }
 }
 
-pub fn build(app: &AppHandle) {
+/// 托盘菜单里这一项的文案。
+///
+/// Win11 的托盘弹层不给 `CheckMenuItem` 画对勾（实测 UIA 报 `toggle=On` 但界面上看不出来），
+/// 所以把状态直接写进文字；勾选位仍然保留，读屏软件靠它报状态。
+pub fn autostart_label(autostart: bool) -> &'static str {
+    if autostart {
+        "开机自启（已开启）"
+    } else {
+        "开机自启"
+    }
+}
+
+/// 托盘菜单的整份内容。「开机自启」的状态每次现读设置，不在别处另存一份。
+fn menu_of(app: &AppHandle, autostart: bool) -> tauri::Result<Menu<Wry>> {
     // 快捷键可能被别的程序占了，托盘这项是它的兜底入口（§2.7、§5.3）。
-    let quick = MenuItemBuilder::with_id(ID_QUICK, "快速记录").build(app);
-    let toggle = MenuItemBuilder::with_id(ID_VISIBLE, "显示 / 隐藏卡片").build(app);
-    let quit = MenuItemBuilder::with_id(ID_QUIT, "退出").build(app);
-    let separator = PredefinedMenuItem::separator(app);
-    let (quick, toggle, quit, separator) = match (quick, toggle, quit, separator) {
-        (Ok(a), Ok(b), Ok(c), Ok(d)) => (a, b, c, d),
-        _ => {
-            probe_log::note("[tray] 建菜单失败，托盘没有挂上");
-            return;
-        }
-    };
-    let menu = match Menu::with_items(app, &[&quick, &toggle, &separator, &quit]) {
+    let quick = MenuItemBuilder::with_id(ID_QUICK, "快速记录").build(app)?;
+    let toggle = MenuItemBuilder::with_id(ID_VISIBLE, "显示 / 隐藏卡片").build(app)?;
+    // 默认关，所以第一次看到的就是没有「已开启」三个字（§12 #6）。
+    let startup = CheckMenuItem::with_id(
+        app,
+        ID_AUTOSTART,
+        autostart_label(autostart),
+        true,
+        autostart,
+        None::<&str>,
+    )?;
+    let quit = MenuItemBuilder::with_id(ID_QUIT, "退出").build(app)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    Menu::with_items(app, &[&quick, &toggle, &startup, &separator, &quit])
+}
+
+pub fn build(app: &AppHandle) {
+    let menu = match menu_of(app, crate::autostart::is_on(app)) {
         Ok(menu) => menu,
         Err(e) => {
             probe_log::note(format!("[tray] 装菜单失败：{e}"));
@@ -109,6 +129,7 @@ pub fn build(app: &AppHandle) {
         .on_menu_event(|app, event| match event.id().as_ref() {
             ID_QUICK => crate::quick::toggle(app),
             ID_VISIBLE => toggle_visible(app),
+            ID_AUTOSTART => crate::autostart::toggle(app),
             ID_QUIT => app.exit(0),
             _ => {}
         })
@@ -128,15 +149,38 @@ pub fn build(app: &AppHandle) {
     }
     match builder.build(app) {
         Ok(_) => probe_log::note(
-            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、退出）",
+            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、开机自启、退出）",
         ),
         Err(e) => probe_log::note(format!("[tray] 建托盘失败：{e}")),
     }
 }
 
+/// 自启勾选变了就重挂一遍菜单。托盘只有这一项会自己变状态，
+/// 用「整份重建」而不是记住那一个菜单项：重建只在建菜单时碰主线程，句柄不用跨线程存着。
+pub fn refresh_menu(app: &AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        probe_log::note("[tray] 刷新菜单时找不到托盘");
+        return;
+    };
+    let result = menu_of(app, crate::autostart::is_on(app))
+        .map_err(|e| e.to_string())
+        .and_then(|menu| tray.set_menu(Some(menu)).map_err(|e| e.to_string()));
+    match result {
+        Ok(()) => probe_log::note("[tray] 开机自启勾选已刷新"),
+        Err(e) => probe_log::note(format!("[tray] 刷新菜单失败：{e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Raises;
+    use super::{autostart_label, Raises};
+
+    /// 开着和关着必须一眼能分出来：托盘弹层不画对勾，状态只能靠文字。
+    #[test]
+    fn the_autostart_item_says_whether_it_is_on() {
+        assert_eq!(autostart_label(false), "开机自启");
+        assert_eq!(autostart_label(true), "开机自启（已开启）");
+    }
 
     /// 连点两次托盘：第一次的定时器不能把第二次刚提上来的卡片压回桌面层。
     #[test]

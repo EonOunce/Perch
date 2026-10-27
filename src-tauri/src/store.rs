@@ -19,7 +19,7 @@ const APP_DIR: &str = "Perch";
 const SETTINGS_FILE: &str = "settings.json";
 
 /// 设备本地设置。位置、折叠状态与长条收起状态是 §2.8 要求记住的三件事；
-/// 其余条目（主题、自启、同步状态）还没做。不同步、不进日志。
+/// 自启两项是 §12 #6 的「默认关、只问一次」。不同步、不进日志。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -30,6 +30,10 @@ pub struct Settings {
     pub strip_rows: bool,
     /// 上次的位置；从没记住过时为 None，首次启动就落在右下角。
     pub place: Option<Place>,
+    /// 开机自启。默认关，且只有她自己点头过才写启动项。
+    pub autostart: bool,
+    /// 首次启动那一次问过了没有——问过就不再追问（§12 #6）。
+    pub autostart_asked: bool,
 }
 
 impl Default for Settings {
@@ -40,6 +44,8 @@ impl Default for Settings {
             // 第一次折叠时默认把长条摊开，不然「收起」反而是默认状态。
             strip_rows: true,
             place: None,
+            autostart: false,
+            autostart_asked: false,
         }
     }
 }
