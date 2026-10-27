@@ -494,6 +494,9 @@ fn main() {
             commands::prefs_set,
             ui_ready,
             card_view::card_set_view,
+            card_view::card_target_size,
+            card_view::window_set_bounds,
+            card_view::window_shift_by,
             card_view::probe_place
         ])
         .setup(|app| {

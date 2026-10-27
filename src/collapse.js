@@ -31,12 +31,23 @@ let cfLastSlot = 'today';
 // 正在进行的换档。开机要等它落地再让窗口露面，否则会先按旧尺寸显示一下再收。
 let cfSizing = Promise.resolve();
 
+// 回值是「窗口尺寸这次到底变没变」：变了才要等网页重排完再量锚点。
 function cfSize() {
   const slot = cfSlot();
-  if (slot === cfLastSlot) return cfSizing;
+  // 档位没变也要等在路上的那一次落地（开机要靠这个），但不算「这次变了」。
+  if (slot === cfLastSlot) return cfSizing.then(() => false);
   cfLastSlot = slot;
-  cfSizing = invoke('card_set_view', { view: slot }).catch((err) => toast(String(err)));
+  cfSizing = invoke('card_set_view', { view: slot }).catch((err) => {
+    toast(String(err));
+    return false;
+  });
   return cfSizing;
+}
+
+// morphRect 直接逐帧改窗口尺寸，绕过了 card_set_view；换完档要登记一笔现在在哪一档，
+// 否则 cfSize 以为还在旧档，下一次数据驱动的换档会被当成「没变化」跳过。
+function cfNoteSlot(slot) {
+  cfLastSlot = slot;
 }
 
 // 只改状态与 DOM，不碰窗口：开机要用它先画第一帧，换档则等内容退场后再用。
@@ -51,27 +62,36 @@ function cfShowCollapsed(on) {
 let cfSeq = 0;
 let cfQueue = Promise.resolve();
 
-function cfSetCollapsed(on) {
+function cfSetCollapsed(on, clicked) {
   const mine = ++cfSeq;
   cfQueue = cfQueue.catch(() => {}).then(async () => {
     // 过渡途中又点了一下（或点了相反方向）：只走最后一次，别来回换档。
     if (mine !== cfSeq || on === cf.collapsed) return;
-    const ms = motionMs();
-    // 减少动效时连淡出都别做：隐藏两帧同样是一次闪烁。
-    if (ms) {
-      cfe.card.classList.add('is-leaving');
-      await sleep(ms);
-    }
+    const expandedSurfaces = () => [
+      ...document.querySelectorAll('.card-head, .tabs, .card > .banner, .scroller'),
+    ];
+    const outgoing = on ? expandedSurfaces() : [cfe.strip];
+    const incoming = on ? [cfe.strip] : expandedSurfaces();
+    // 收起/展开是两套布局：看得见的那块先朝点击点退掉，摆好新布局后再逐帧换窗口尺寸。
+    const fromEl = clicked || (on ? cfe.collapseBtn : cfe.expandBtn);
+    const toEl = on ? cfe.expandBtn : cfe.collapseBtn;
+    const point = anchorPoint(fromEl);
+    await sinkOut(outgoing, motionOut(), point);
     cfShowCollapsed(on);
     // 折叠状态自己记住（§2.8）；写失败顶多下次开机回到展开，不该拦住这次折叠。
     invoke('prefs_set', { collapsed: on }).catch((err) => toast(String(err)));
-    await paintStrip(ui.view);
-    await afterPaint();
-    cfe.card.classList.remove('is-leaving');
+    renderStrip(ui.view);
+    hideNow(incoming);
+    // 折叠与展开点的是同一处：顶栏品牌块 / 日期块，都贴着卡片左边，横向偏移不用预测。
+    const morph = morphRect(cfSlot(), toEl);
+    riseIn(incoming, motionIn(), point);
+    await morph;
     updateFade();
   }).catch((err) => {
     // 卡在其中一步时不要把内容永远留在透明态；报一声，用户还能继续操作。
-    cfe.card.classList.remove('is-leaving');
+    for (const el of document.querySelectorAll('.card-head, .tabs, .scroller, .strip')) {
+      el.style.opacity = '';
+    }
     toast(String(err));
   });
 }
@@ -119,8 +139,9 @@ function stripHtml(view) {
   return { html: rows.join(''), quiet: !cf.actions };
 }
 
-function paintStrip(view) {
-  if (!view) return Promise.resolve();
+// 只画长条与日期栏，不碰窗口：换档动画要先把新布局摆好，再逐帧改窗口矩形。
+function renderStrip(view) {
+  if (!view) return;
   const { html, quiet } = stripHtml(view);
   cfe.stripDay.textContent = fmtDay(view.today);
   cfe.stripWeek.textContent = weekdayOf(view.today);
@@ -144,6 +165,13 @@ function paintStrip(view) {
   }
   // 折叠按钮那条路径不走 paint()，淡出得自己刷新，否则沿用的是展开态那块滚动区的判断。
   updateFade();
+}
+
+// 数据驱动的那条路（打卡后长条行数变了、开机画第一帧）：换档一步到位，不演动画。
+// 没有「被点的控件」要钉住，动画在这里只会凭空抖一下。
+function paintStrip(view) {
+  if (!view) return Promise.resolve(false);
+  renderStrip(view);
   return cfSize();
 }
 
@@ -186,34 +214,36 @@ const cfWasDragged = () => cfDrag.dragged;
 
 cfe.collapseBtn.addEventListener('click', () => {
   if (cfWasDragged()) return;
-  cfSetCollapsed(true);
+  cfSetCollapsed(true, cfe.collapseBtn);
 });
 cfe.expandBtn.addEventListener('click', () => {
   if (cfWasDragged()) return;
-  cfSetCollapsed(false);
+  cfSetCollapsed(false, cfe.expandBtn);
 });
-cfe.stripFold.addEventListener('click', () => cfSetRowsShown(!cf.rowsShown));
+cfe.stripFold.addEventListener('click', () => cfSetRowsShown(!cf.rowsShown, cfe.stripFold));
 
 let cfRowsSeq = 0;
 let cfRowsQueue = Promise.resolve();
 
-// 长条收起/摊开：先让行退场（或先让新行以透明姿态等窗口），再换尺寸，最后淡入（§8）。
-function cfSetRowsShown(on) {
+// 长条收起/摊开：行先朝点击点收进去（或从点击点长出来），窗口围着那颗箭头逐帧换档（§8）。
+function cfSetRowsShown(on, clicked) {
   const mine = ++cfRowsSeq;
   cfRowsQueue = cfRowsQueue.catch(() => {}).then(async () => {
     if (mine !== cfRowsSeq || on === cf.rowsShown) return;
-    const ms = motionMs();
-    if (ms) cfe.stripRows.classList.add('is-hiding');
-    // 收起时先看完退场再缩窗口；摊开时窗口先长高，行在透明状态下等它。
-    if (ms && !on) await sleep(ms);
+    const anchorEl = clicked || cfe.stripFold;
+    const point = anchorPoint(anchorEl);
+    if (!on) await sinkOut([cfe.stripRows], motionOut(), point);
     cf.rowsShown = on;
     invoke('prefs_set', { stripRows: on }).catch((err) => toast(String(err)));
-    await paintStrip(ui.view);
-    await afterPaint();
-    cfe.stripRows.classList.remove('is-hiding');
+    renderStrip(ui.view);
+    if (on) hideNow([cfe.stripRows]);
+    // 箭头在日期栏最右边；这两档同宽（360），换成别的档也按「到右边的距离不变」算。
+    const morph = morphRect(cfSlot(), cfe.stripFold, 'right');
+    if (on) riseIn([cfe.stripRows], motionIn(), point);
+    await morph;
     updateFade();
   }).catch((err) => {
-    cfe.stripRows.classList.remove('is-hiding');
+    cfe.stripRows.style.opacity = '';
     toast(String(err));
   });
 }
