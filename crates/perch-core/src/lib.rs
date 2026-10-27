@@ -9,6 +9,8 @@
 //! - [`goal`]：`goalHistory` 生效规则
 //! - [`habits`]：墓碑 / 归档可见性与「一天一个有效事件」
 //! - [`edit`]：写入侧口径（追加事件、墓碑、标签解析）
+//! - [`records`]：记录时间线的分组、搜索与标签筛选
+//! - [`stats`]：范围、完成率、热力图档位、记录量与每周文字回顾（DESIGN §6）
 //! - [`storage`]：`data.json` 原子写与滚动备份
 
 pub mod date_boundary;
@@ -16,9 +18,12 @@ pub mod edit;
 pub mod goal;
 pub mod habits;
 pub mod model;
+pub mod records;
+pub mod stats;
 pub mod storage;
 
 pub use edit::{add_habit, set_checkin, EditError, NewHabit, Now};
 pub use habits::{counts, effective_events, status_on, DayCounts, DayStatus};
 pub use model::{Data, SCHEMA_VERSION};
+pub use stats::{resolve_range, stats, Range, Stats};
 pub use storage::{StorageError, Store};
