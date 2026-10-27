@@ -99,13 +99,19 @@ fn place(_app: &AppHandle, win: &WebviewWindow) {
     }));
 }
 
+/// 前端点折叠条上那支笔走的就是这条路。
+///
+/// 命令**必须是 `async`**：同步命令在主线程上执行，而 `toggle` 又把活儿排回主线程，
+/// 于是主线程等自己排的任务——整个应用就此卡死（2026-10-28 真机实测：`invoke('quick_toggle')`
+/// 之后连 `prefs_get` 都不再回复，小窗也没建出来）。`async` 让命令跑在工作线程上，
+/// 与已验证可用的快捷键线程那条路一致。
 #[tauri::command]
-pub fn quick_toggle(app: AppHandle) {
+pub async fn quick_toggle(app: AppHandle) {
     toggle(&app);
 }
 
 #[tauri::command]
-pub fn quick_hide(app: AppHandle) {
+pub async fn quick_hide(app: AppHandle) {
     hide(&app);
 }
 
@@ -127,6 +133,20 @@ pub fn quick_save(app: AppHandle, text: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{spot, HEIGHT, WIDTH};
+
+    /// 两个开关窗口的命令必须是 `async`：同步命令在主线程上执行，而它们又把活儿排回
+    /// 主线程，于是主线程等自己排的任务——整个应用卡死。这个形状错误编译不报错，
+    /// 所以钉在这里（2026-10-28 真机就是这么卡死的，连 `prefs_get` 都不再回复）。
+    #[test]
+    fn the_window_commands_run_off_the_main_thread() {
+        let src = include_str!("quick.rs");
+        for name in ["quick_toggle", "quick_hide"] {
+            assert!(
+                src.contains(&format!("pub async fn {name}(")),
+                "{name} 得是 async 命令，否则在主线程上等自己排的任务"
+            );
+        }
+    }
 
     /// 1920×1080 上：横向正中、纵向在上四分之一处，且整窗都在屏内。
     #[test]
