@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::probe_log;
 use tauri::menu::{CheckMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WebviewWindow, Wry};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow, Wry};
 
 /// 提到前台待多久。8 秒够看清卡片在不在、点两下，又不至于变成事实上的置顶。
 pub const RAISE_MS: u64 = 8_000;
@@ -16,6 +16,7 @@ pub const RAISE_MS: u64 = 8_000;
 pub const TRAY_ID: &str = "perch-tray";
 pub const ID_QUICK: &str = "quick-record";
 pub const ID_VISIBLE: &str = "toggle-visible";
+pub const ID_ABOUT: &str = "about";
 pub const ID_AUTOSTART: &str = "autostart";
 pub const ID_MORNING: &str = "morning-raise";
 pub const ID_QUIT: &str = "quit";
@@ -95,6 +96,13 @@ pub fn toggle_visible(app: &AppHandle) {
     }
 }
 
+/// 托盘「关于栖迟」（§2.10 的第二个入口）。卡片本来可能被藏着或压在桌面层，
+/// 所以先按左键那条路把它短时提到前台，再让界面自己把面板打开——层级仍会到点还回去。
+pub fn show_about(app: &AppHandle) {
+    raise_temporary(app);
+    let _ = app.emit("perch:about", ());
+}
+
 /// 托盘菜单里两个「自己会变的项」的文案。
 ///
 /// Win11 的托盘弹层不给 `CheckMenuItem` 画对勾（实测 UIA 报 `toggle=On` 但界面上看不出来），
@@ -121,6 +129,8 @@ fn menu_of(app: &AppHandle, autostart: bool, morning: bool) -> tauri::Result<Men
     // 快捷键可能被别的程序占了，托盘这项是它的兜底入口（§2.7、§5.3）。
     let quick = MenuItemBuilder::with_id(ID_QUICK, "快速记录").build(app)?;
     let toggle = MenuItemBuilder::with_id(ID_VISIBLE, "显示 / 隐藏卡片").build(app)?;
+    // 说明的唯一系统级入口（§2.10）：卡片右上角那个 ⓘ 之外的第二个入口。
+    let about = MenuItemBuilder::with_id(ID_ABOUT, "关于栖迟").build(app)?;
     // 默认关，所以第一次看到的就是没有「已开启」三个字（§12 #6）。
     let startup = CheckMenuItem::with_id(
         app,
@@ -140,7 +150,10 @@ fn menu_of(app: &AppHandle, autostart: bool, morning: bool) -> tauri::Result<Men
     )?;
     let quit = MenuItemBuilder::with_id(ID_QUIT, "退出").build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    Menu::with_items(app, &[&quick, &toggle, &startup, &dawn, &separator, &quit])
+    Menu::with_items(
+        app,
+        &[&quick, &toggle, &about, &startup, &dawn, &separator, &quit],
+    )
 }
 
 pub fn build(app: &AppHandle) {
@@ -162,6 +175,7 @@ pub fn build(app: &AppHandle) {
         .on_menu_event(|app, event| match event.id().as_ref() {
             ID_QUICK => crate::quick::toggle(app),
             ID_VISIBLE => toggle_visible(app),
+            ID_ABOUT => show_about(app),
             ID_AUTOSTART => crate::autostart::toggle(app),
             ID_MORNING => crate::morning::toggle(app),
             ID_QUIT => app.exit(0),
@@ -183,7 +197,7 @@ pub fn build(app: &AppHandle) {
     }
     match builder.build(app) {
         Ok(_) => probe_log::note(
-            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、开机自启、早晨浮出、退出）",
+            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、关于栖迟、开机自启、早晨浮出、退出）",
         ),
         Err(e) => probe_log::note(format!("[tray] 建托盘失败：{e}")),
     }

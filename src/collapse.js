@@ -183,6 +183,10 @@ const cfDrag = { armed: false, dragged: false, x: 0, y: 0 };
 function cfBindDrag(node) {
   node.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
+    // 顶栏只有品牌块（和折叠态的日期块）既要点又要拖；其余按钮按下去就是按下去，
+    // 不然在 ⓘ 上稍微挪一下就把整张卡拖走了。
+    const hit = event.target.closest('button');
+    if (hit && !hit.classList.contains('brand') && !hit.classList.contains('strip-date')) return;
     cfDrag.armed = true;
     cfDrag.x = event.clientX;
     cfDrag.y = event.clientY;

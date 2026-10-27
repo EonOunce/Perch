@@ -39,6 +39,8 @@ pub struct Settings {
     pub morning_raise: bool,
     /// 上一次浮出是哪一天（`localDate`，04:00 日界）。同一天不第二次（§2.3）。
     pub morning_raise_date: Option<String>,
+    /// 「关于栖迟」那个入口提示过一次没有（§2.10：只提示一次，不首启强弹）。
+    pub about_hinted: bool,
 }
 
 impl Default for Settings {
@@ -53,6 +55,7 @@ impl Default for Settings {
             autostart_asked: false,
             morning_raise: true,
             morning_raise_date: None,
+            about_hinted: false,
         }
     }
 }

@@ -60,6 +60,11 @@
     <path d="M19.6 4.2v4.4h-4.4"/>
   </symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6.5 14.5 5.5-5.5 5.5 5.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.6"/>
+    <path d="M12 11v5.6"/>
+    <circle cx="12" cy="7.9" r=".95" fill="currentColor" stroke="none"/>
+  </symbol>
 </svg>
 
 <main class="card" id="card">
@@ -67,6 +72,10 @@
     <button class="brand" id="collapseBtn" type="button" aria-label="折叠卡片">
       <span class="brand-mark"><svg class="icon"><use href="#i-perch"/></svg></span>
       <span class="brand-cn">栖迟</span>
+    </button>
+    <!-- 说明的唯一入口（§2.10）：主界面不放解释，长句全收在这面板里。 -->
+    <button class="icon-btn head-about" id="aboutBtn" type="button" aria-label="关于栖迟" title="关于栖迟">
+      <svg class="icon"><use href="#i-info"/></svg>
     </button>
   </section>
 
@@ -258,6 +267,79 @@
     </div>
   </div>
 
+  <!-- 关于栖迟（§2.10）：所有解释性长句集中在这里，主界面只留动作、数据与状态词。
+       分节按当前真的有的功能列——标记与分段对比是 Phase 3，同步是 Phase 2，这里不提前描述成已存在。 -->
+  <div class="sheet about" id="aboutSheet" hidden>
+    <section class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+      <div class="sheet-head">
+        <h3 id="aboutTitle">关于栖迟</h3>
+        <button class="icon-btn" id="aboutClose" type="button" aria-label="关闭关于栖迟">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <p class="about-lede">一张留在桌面上的记录卡。习惯、心情和碎碎念都在这里；不催促，也不评判。</p>
+
+      <section class="about-section" id="about-record">
+        <h4>记录与确认</h4>
+        <p>一天从 04:00 开始。04:00 前写下的记录和确认，归入前一天。</p>
+        <p>阅读这类习惯可以设成次日早晨确认，避免晚上提前替自己下结论。确认前保持「未确认」，它只是一个信息，不计为失败，也不补零。</p>
+        <p>也可以设成当天确认，适合散步、伸展这类当下就能知道结果的事。修改一条记录会保留原来的日期和时间。</p>
+      </section>
+
+      <section class="about-section" id="about-habits">
+        <h4>习惯与目标</h4>
+        <p>「习惯」区块右侧的「管理」里可以新增或修改习惯。名称、一句定义、单位、确认时机、每周目标和 if–then 都可以改。</p>
+        <p>每周目标填 0 表示只记录、不设目标。目标修改从下一个周一起生效，过去几周的目标和完成率不会被重写。所有目标都能按自己的情况调整，没有连续打卡要求，也没有惩罚色。</p>
+        <p>if–then 是给自己的启动线索，例如「如果洗完澡，就把书放到枕边」。</p>
+        <p>不想记了有两个出口，都在「管理」里。<strong>移除</strong>只需要一次确认，之后这个习惯和它的打卡记录从所有地方消失，统计也不再显示，无法恢复。<strong>归档</strong>把它放进列表下方的归档区：今天页和习惯范围里不再出现，也不能再补记历史，但每一行都有一个「统计」开关，决定它的历史数据是否继续参与统计，默认打开。归档可以随时恢复。</p>
+      </section>
+
+      <section class="about-section" id="about-mood">
+        <h4>心情</h4>
+        <p>每天一次，0–100 的滑杆。松手后自动记下，可以随时重拉覆盖。五个区间只是给感受一个名字，不改变你选的数值：</p>
+        <p class="about-bands">
+          <span><i style="background:var(--mood-1)"></i>0–19 很低落</span>
+          <span><i style="background:var(--mood-2)"></i>20–39 有点低</span>
+          <span><i style="background:var(--mood-3)"></i>40–59 一般</span>
+          <span><i style="background:var(--mood-4)"></i>60–79 不错</span>
+          <span><i style="background:var(--mood-5)"></i>80–100 很好</span>
+        </p>
+        <p>心情是自我报告，没有标准答案；它不会反过来评价习惯完成得好不好。</p>
+      </section>
+
+      <section class="about-section" id="about-stats">
+        <h4>统计口径</h4>
+        <p>完成率 = 完成 ÷（完成 + 没做 + 未确认）。未确认的日子留在分母里，所以「确认」不只是为了好看，它会实实在在抬升完成率。分母只算到昨天为止，今天和还没到的日子不参与。</p>
+        <p>热力图一格一天：当天该做的都完成了最深，完成一部分居中，一件都没完成最浅。只有描边、没有填充的是「还没确认」——那天已经过去了，但你还没说做没做。没到的日子和习惯还没开始的日子留空。选「全部习惯」时按当天所有习惯合起来算，选单个习惯时只看它自己。下方每个习惯单独一行，一格一周。记录量柱高只表示写下的条数，写得少不等于做得少。</p>
+      </section>
+
+      <section class="about-section" id="about-review">
+        <h4>每周回顾</h4>
+        <p>每周回顾在统计页底部，看最近一个完整的周一到周日，按固定规则组合当周数据，不调用 AI，也不做推断。</p>
+      </section>
+
+      <section class="about-section" id="about-sync">
+        <h4>同步与隐私</h4>
+        <p>同步还没接进来。接上之后走坚果云 WebDAV，记录、日记和打卡内容以明文保存，只有传输走 HTTPS——这是有意选择的「简单优先」，栖迟不做客户端加密，也不会声称已经加密。</p>
+        <p>坚果云的应用专用密码只保存在本机，不参与同步、不写日志、不导出。同步按本地优先：没有网络时照常记录，恢复连接后再合并。</p>
+      </section>
+
+      <section class="about-section" id="about-quick">
+        <h4>桌面层与快速记录</h4>
+        <p>卡片属于桌面层，不是永久置顶：普通应用会正常盖住它。点托盘图标可以把它短时提到前台，几秒后自己回到桌面层。</p>
+        <p>Ctrl+Alt+N 打开快速记录，Enter 保存，Shift+Enter 换行，Esc 关闭。托盘菜单里也有「快速记录」，快捷键被别的程序占住时用得上。</p>
+        <p>折叠后只剩顶部一条日期栏，下面垂着竖向长条：待确认的习惯直接在长条里点掉，打过卡的那一行会裁成一窄条，留「已打卡」和撤销。</p>
+        <p>折叠和展开点的是同一个地方：顶栏的图标和它旁边的文字整块可点，点一下折叠；折叠后点日期栏上那一块再展开。折叠态右上角的按钮只负责收起或展开下面的长条，不参与折叠。顶栏其余空白处按住即可拖动卡片，挪过 4 像素以上才算拖动，不会误触。</p>
+      </section>
+
+      <section class="about-section" id="about-build">
+        <h4>这个版本</h4>
+        <p>栖迟 Perch <span id="aboutVersion">—</span>，Windows 本地版。记录存在这台电脑的 <code>%LOCALAPPDATA%\Perch\data.json</code>，窗口位置、折叠状态和开关存在同一目录的 <code>settings.json</code>，两者都不上传。</p>
+        <p>还没做的：云同步、每周回顾导出、标记与分段对比。这些不影响现在记录、确认和看统计。</p>
+      </section>
+    </section>
+  </div>
+
   <div class="sheet" id="sheet" hidden>
     <form class="sheet-body" id="habitForm">
       <div class="sheet-head">
@@ -333,5 +415,6 @@
 <script src="stats.js"></script>
 <script src="collapse.js"></script>
 <script src="autostart.js"></script>
+<script src="about.js"></script>
 </body>
 </html>

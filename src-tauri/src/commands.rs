@@ -669,6 +669,7 @@ fn build_stats(
 
 /// 开机时界面要知道的几件本地设置。折叠与长条是两根开关（§2.8），位置由窗口事件自己记（main.rs）。
 /// 自启两项给首次启动那一次问答用：`autostartAsked` 为真就再也不问（§12 #6）。
+/// `aboutHinted` 管「关于栖迟」那个入口提示，同样只提示一次（§2.10）。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrefsView {
@@ -676,6 +677,7 @@ pub struct PrefsView {
     pub strip_rows: bool,
     pub autostart: bool,
     pub autostart_asked: bool,
+    pub about_hinted: bool,
 }
 
 #[tauri::command]
@@ -688,6 +690,7 @@ pub fn prefs_get(state: tauri::State<'_, SharedPrefs>) -> PrefsView {
                 strip_rows: settings.strip_rows,
                 autostart: settings.autostart,
                 autostart_asked: settings.autostart_asked,
+                about_hinted: settings.about_hinted,
             })
         })
         // 设置读不出来时按默认值画：折叠展开、长条摊开、不自启、还没问过。
@@ -696,6 +699,7 @@ pub fn prefs_get(state: tauri::State<'_, SharedPrefs>) -> PrefsView {
             strip_rows: true,
             autostart: false,
             autostart_asked: false,
+            about_hinted: false,
         })
 }
 
@@ -704,6 +708,7 @@ pub fn prefs_get(state: tauri::State<'_, SharedPrefs>) -> PrefsView {
 pub fn prefs_set(
     collapsed: Option<bool>,
     strip_rows: Option<bool>,
+    about_hinted: Option<bool>,
     state: tauri::State<'_, SharedPrefs>,
 ) -> Result<(), String> {
     state.with(|prefs| {
@@ -714,6 +719,9 @@ pub fn prefs_set(
             if let Some(value) = strip_rows {
                 settings.strip_rows = value;
             }
+            if let Some(value) = about_hinted {
+                settings.about_hinted = value;
+            }
         })
     })
 }
@@ -721,6 +729,7 @@ pub fn prefs_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Settings;
 
     /// 上面那几个字符串必须和 perch-core 序列化出来的字段名一致，否则前端拿到的是另一个词。
     /// 拼错一个字母编译不报错，所以把它钉在这里。
@@ -1042,8 +1051,9 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// 前端读的是 `prefs.collapsed`、`prefs.stripRows`、`prefs.autostartAsked`
-    /// （collapse.js 开机流程、autostart.js 首启问答），字段名拼错不会编译报错，所以钉在这里。
+    /// 前端读的是 `prefs.collapsed`、`prefs.stripRows`、`prefs.autostartAsked`、`prefs.aboutHinted`
+    /// （collapse.js 开机流程、autostart.js 首启问答、about.js 入口提示），
+    /// 字段名拼错不会编译报错，所以钉在这里。
     #[test]
     fn the_prefs_view_uses_the_field_names_the_scripts_read() {
         let json = serde_json::to_value(PrefsView {
@@ -1051,12 +1061,24 @@ mod tests {
             strip_rows: false,
             autostart: true,
             autostart_asked: false,
+            about_hinted: true,
         })
         .unwrap();
         assert_eq!(json["collapsed"], true);
         assert_eq!(json["stripRows"], false);
         assert_eq!(json["autostart"], true);
         assert_eq!(json["autostartAsked"], false);
+        assert_eq!(json["aboutHinted"], true);
+    }
+
+    /// 全新安装必须还没提示过——§2.10 那句「首次打开只提示一次入口存在」的前提
+    /// 是这个标志的默认值是 false，而不是某个文件里恰好没写这个键。
+    #[test]
+    fn the_about_entry_hint_starts_unseen() {
+        assert!(
+            !Settings::default().about_hinted,
+            "默认值写成 true 就等于这个入口永远不提示"
+        );
     }
 
     /// 统计视图的输入契约：非法范围变成一句能就地显示的话，而不是一档悄悄替换掉的默认值；

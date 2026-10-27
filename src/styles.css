@@ -1857,3 +1857,72 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .strip-row.is-cropping { animation: strip-crop 260ms ease-out; }
+
+/* --------------------------------------------------------------------------
+   关于栖迟（§2.10）：解释集中在一处，所以这一屏允许长句；文字色只用 --ink
+   与 --ink-soft 两种，标题靠字号与间距分层，不靠第三种颜色。
+   -------------------------------------------------------------------------- */
+
+.head-about { margin-left: auto; }
+
+/* 首次启动那一个提示点：只说「这儿有个入口」，她点开过一次就永久不再出现。 */
+.head-about.is-new { position: relative; border-color: var(--sage-deep); }
+
+.head-about.is-new::after {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sage-deep);
+  content: "";
+}
+
+.about .sheet-body { padding-bottom: 18px; }
+
+.about-lede {
+  margin: 0 0 12px;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.about-section { margin-top: 14px; }
+
+.about-section h4 {
+  margin: 0 0 5px;
+  font-family: var(--serif);
+  font-size: var(--t-md);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.about-section p {
+  margin: 0 0 7px;
+  font-size: var(--t-sm);
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.about-section strong { font-weight: 600; }
+
+.about-section code {
+  font-family: "Cascadia Mono", Consolas, "Segoe UI Mono", monospace;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.about-bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 11px;
+}
+
+.about-bands span { display: inline-flex; align-items: center; gap: 4px; }
+
+.about-bands i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
