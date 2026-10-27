@@ -1701,7 +1701,6 @@ input[type="range"]::-moz-range-thumb {
 .card-head,
 .strip-bar { cursor: grab; }
 
-.card.is-dragging { opacity: .93; }
 .card.is-dragging .card-head,
 .card.is-dragging .strip-bar { cursor: grabbing; }
 
