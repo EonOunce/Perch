@@ -228,6 +228,9 @@ UI Automation 枚举 `Shell_TrayWnd` 与 `TopLevelWindowForOverflowXamlIsland` �
   - 托盘菜单「快速记录」真实点击 → 小窗打开；
   - 折叠态日期栏的笔形按钮真实点击 → 小窗打开，卡片仍是 `层=普通窗口`、矩形 468×221 不变
     （§2.7「不改变主卡片状态」＝档位与层级都不动）；
+    **这条 2026-10-28 撤回**：当时按的其实是托盘里的「快速记录」，前端那支笔走 `invoke('quick_toggle')`，
+    真点下去会把整个应用卡死，见 §15。上面「托盘真实点击」与 `Ctrl+Alt+N` 两条仍然成立——
+    它们在 Rust 侧直接调 `toggle()`，不经过 IPC 命令。
   - 标题栏 `data-tauri-drag-region` 真实拖动 → 窗口按物理 +100,+100 位移；
   - 小窗不进任务栏：打开小窗时抓屏比对任务栏按钮，没有多出「栖迟」。
 - **注册失败分支未实测**：本机 `Ctrl+Alt+N` 没人占。失败时只记日志并发 `perch:hint` 让卡片 toast
@@ -306,3 +309,36 @@ UI Automation 枚举 `Shell_TrayWnd` 与 `TopLevelWindowForOverflowXamlIsland` �
 - **没验证的**：她本人连续早晨的真实感受（会不会仍然错过回顾）——见 §12 #8；
   以及跨零点常驻不重启的情形（判断只挂在启动路径上，一天一次是按 `localDate` 记的，
   所以「开着卡片跨过 04:00」不会补浮，这是有意的：补浮就成了第二次打扰）。
+
+## 15. 快速记录走 IPC 命令这条路时把整个应用锁死（2026-10-28，单机验收时发现）
+
+**现象**：真窗口里点折叠日期栏上那支笔（前端 `invoke('quick_toggle')`），应用当场冻住——
+不只是小窗没建出来，连完全无关的 `prefs_get` 都不再回复，CDP 的 `Runtime.evaluate` 挂在
+promise 上拿不到值。杀掉重开一次就复现一次，`Ctrl+Alt+N` 与托盘那两条路却都好的。
+
+**根因**：Tauri 的**同步** `#[tauri::command]` 在主线程上执行，而 `quick_toggle` / `quick_hide`
+内部又按 §12 那条规矩把活儿 `run_on_main_thread` 排回主线程。于是主线程站在原地等一个
+只有它自己能跑的闭包——自己等自己。快捷键线程和托盘回调不在主线程上，它们排完活儿就走，
+所以同一段 `toggle()` 从那儿进就是通的。这就是为什么「任何新建 `WebviewWindow` 的入口都必须
+排回主线程」这条写对了，却仍然锁死：**排回主线程的前提是说话的人不在主线程上**。
+
+**修法**：两个命令改 `async`（async 命令跑在 tokio 工作线程上，与快捷键线程同构），
+`quick_save` 保持同步——它只写数据加 `emit`，不碰窗口。形状错误编译不报错，所以钉一条
+读源码的测试 `quick::tests::the_window_commands_run_off_the_main_thread`，断言这两个命令是
+`pub async fn`。
+
+**修完的实测**（真窗口，dev 构建，125%）：
+
+- `invoke('quick_toggle')` 有回复且 IPC 仍然活着（回读 `prefs_get` 拿到 `collapsed=false`）；
+  小窗 `Vis=True`，物理矩形 578,155 / 394×240；量化 14 元素 / 40 字符 / 3 种文字色 /
+  0 个亚 24px 可点 / 0 项 AA 未达标；
+- `insertText` 写一句 + 真实 Enter → `records_state.total` 13→14，正文与 `#测试` 标签都在，
+  主卡片 DOM 立刻出现该条（`perch:changed` 跨 webview 生效，两个 webview 各听各的）；
+- **紧接着再存第二条也成功**——这条是特意补的：`quick.js` 的 `save()` 在 `finally` 里才复位
+  `saving`，而它前面还 `await invoke('quick_hide')`，只要收起这条路再卡一次，「记下」就会被
+  永久禁用。现在小窗确实 `Vis=False` 且第二次保存落地，说明复位走完了；
+- 真实 `Ctrl+Alt+N` 连按两下：第一次 `Vis=True`、第二次 `Vis=False`；
+- 托盘菜单「退出」真实点击 → `tasklist` 里再没有 `perch.exe`。
+
+**给下一个人的话**：桌面层的窗口操作只认主线程，而 IPC 命令默认就住在主线程上。
+凡是命令里出现 `run_on_main_thread`，命令本身必须是 `async`；否则整张卡会连数据都读不出来。
