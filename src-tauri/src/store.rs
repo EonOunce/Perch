@@ -1,7 +1,8 @@
 //! 数据的落点与「内存不领先于磁盘」这条规矩。
 //!
 //! `data.json` 怎么原子写、怎么留备份、版本不认识时怎么拒绝，全在 perch-core 的 `Store` 里。
-//! 这一层只做三件事：找到 `%LOCALAPPDATA%\Perch`、记住本机 deviceId、
+//! 这一层只做四件事：找到 `%LOCALAPPDATA%\Perch`、记住本机 deviceId、
+//! 记住窗口位置与折叠状态这些设备本地设置（`settings.json`），
 //! 以及把「改内存」和「落盘」绑成一次动作——写失败时界面上看到的仍然是磁盘上的那份。
 
 use std::fs;
@@ -17,12 +18,40 @@ use crate::clock;
 const APP_DIR: &str = "Perch";
 const SETTINGS_FILE: &str = "settings.json";
 
-/// 设备本地设置。DESIGN §3.4 列的那些（窗口位置、折叠状态、最后标签）还没做，
-/// 先把只有 deviceId 这一件事写实：不同步、不进日志。
-#[derive(Debug, Default, Serialize, Deserialize)]
+/// 设备本地设置。位置、折叠状态与长条收起状态是 §2.8 要求记住的三件事；
+/// 其余条目（主题、自启、同步状态）还没做。不同步、不进日志。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub device_id: String,
+    /// 折叠成一整条；展开时为 false。
+    pub collapsed: bool,
+    /// 折叠态里长条是否展开（日期栏右边那根箭头只管这个）。
+    pub strip_rows: bool,
+    /// 上次的位置；从没记住过时为 None，首次启动就落在右下角。
+    pub place: Option<Place>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            device_id: String::new(),
+            collapsed: false,
+            // 第一次折叠时默认把长条摊开，不然「收起」反而是默认状态。
+            strip_rows: true,
+            place: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Settings {
-    device_id: String,
+pub struct Place {
+    /// 显示器设备名；对不上同名显示器时退回亮着的这一块。
+    pub monitor: Option<String>,
+    /// 相对该显示器工作区左上角的逻辑坐标（换算见 place.rs）。
+    pub x: f64,
+    pub y: f64,
 }
 
 /// 一份运行中的数据 + 它的来源。
@@ -138,7 +167,88 @@ impl SharedState {
     }
 }
 
-fn app_root() -> Result<PathBuf, String> {
+/// settings.json 的读写。写入走临时文件 + rename：改到一半失败，旧的那份还在。
+pub struct Prefs {
+    root: PathBuf,
+    settings: Settings,
+}
+
+impl Prefs {
+    pub fn load(root: &Path) -> Prefs {
+        Prefs {
+            root: root.to_path_buf(),
+            settings: read_settings(&settings_path(root)).unwrap_or_default(),
+        }
+    }
+
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// 改设置并立刻落盘；写失败时内存里的值回到改之前，
+    /// 这样界面不会出现「看着记住了、下次开机又是旧的」。
+    pub fn update(&mut self, edit: impl FnOnce(&mut Settings)) -> Result<(), String> {
+        let before = self.settings.clone();
+        edit(&mut self.settings);
+        if self.settings == before {
+            return Ok(());
+        }
+        match write_settings(&self.root, &self.settings) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                self.settings = before;
+                Err(err)
+            }
+        }
+    }
+}
+
+/// 窗口事件与命令都会来改设置，和 SharedState 一样用一把锁排队。
+pub struct SharedPrefs {
+    inner: Mutex<Prefs>,
+}
+
+impl SharedPrefs {
+    pub fn new(prefs: Prefs) -> Self {
+        SharedPrefs {
+            inner: Mutex::new(prefs),
+        }
+    }
+
+    pub fn with<R>(&self, f: impl FnOnce(&mut Prefs) -> Result<R, String>) -> Result<R, String> {
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&mut guard)
+    }
+}
+
+fn settings_path(root: &Path) -> PathBuf {
+    root.join(SETTINGS_FILE)
+}
+
+fn read_settings(path: &Path) -> Option<Settings> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Settings>(&text).ok())
+}
+
+/// 和 data.json 一个规矩：先写临时文件，再一步换上去。
+fn write_settings(root: &Path, settings: &Settings) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(settings)
+        .map_err(|err| format!("写不出 settings.json: {err}"))?;
+    fs::create_dir_all(root).map_err(|err| format!("创建 {} 失败: {err}", root.display()))?;
+    let path = settings_path(root);
+    let tmp = root.join(format!("{SETTINGS_FILE}.tmp"));
+    fs::write(&tmp, json).map_err(|err| format!("写 {} 失败: {err}", tmp.display()))?;
+    fs::rename(&tmp, &path).map_err(|err| {
+        let _ = fs::remove_file(&tmp);
+        format!("替换 {} 失败: {err}", path.display())
+    })
+}
+
+pub(crate) fn app_root() -> Result<PathBuf, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .ok_or_else(|| "找不到 %LOCALAPPDATA%，数据没地方放".to_string())?;
     Ok(PathBuf::from(base).join(APP_DIR))
@@ -146,24 +256,16 @@ fn app_root() -> Result<PathBuf, String> {
 
 /// 本机 deviceId：`settings.json` 里读，没有就新生成一个写回去。
 ///
-/// 这里用的是最普通的写文件，没有临时文件加 rename——写坏了也只是重新生成一个 ID，
-/// 不会丢任何记录；而 `deviceId` 参与的是合并时的来源标记，改名不影响已有数据。
+/// 坏掉的设置文件最多让 ID 重生成一次，不会丢任何记录；而 `deviceId`
+/// 参与合并时的来源标记，改名不影响已有数据。
 fn device_id(root: &Path) -> Result<String, String> {
-    let path = root.join(SETTINGS_FILE);
-    let from_disk = fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Settings>(&text).ok());
-    if let Some(settings) = from_disk.filter(|s| !s.device_id.trim().is_empty()) {
+    let mut settings = read_settings(&settings_path(root)).unwrap_or_default();
+    if !settings.device_id.trim().is_empty() {
         return Ok(settings.device_id);
     }
-    let id = uuid::Uuid::new_v4().to_string();
-    let json = serde_json::to_string_pretty(&Settings {
-        device_id: id.clone(),
-    })
-    .map_err(|err| format!("写不出 settings.json: {err}"))?;
-    fs::create_dir_all(root).map_err(|err| format!("创建 {} 失败: {err}", root.display()))?;
-    fs::write(&path, json).map_err(|err| format!("写 {} 失败: {err}", path.display()))?;
-    Ok(id)
+    settings.device_id = uuid::Uuid::new_v4().to_string();
+    write_settings(root, &settings)?;
+    Ok(settings.device_id)
 }
 
 #[cfg(test)]
@@ -289,6 +391,83 @@ mod tests {
         let reason = perch.read_only_reason().unwrap().to_string();
         assert!(reason.contains("升级"), "实际收到：{reason}");
         assert!(perch.commit(add_habit("h1", "阅读")).is_err());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_local_settings_survive_a_reopen() {
+        let dir = temp_dir("prefs");
+        let perch = Perch::open_at(dir.clone()).unwrap();
+        let mut prefs = Prefs::load(&dir);
+        assert_eq!(prefs.settings().device_id, perch.device_id());
+        assert!(!prefs.settings().collapsed);
+        assert!(
+            prefs.settings().strip_rows,
+            "默认摊开长条，收起要是用户按的"
+        );
+        assert!(prefs.settings().place.is_none());
+
+        prefs
+            .update(|settings| {
+                settings.collapsed = true;
+                settings.strip_rows = false;
+                settings.place = Some(Place {
+                    monitor: Some(r"\\.\DISPLAY1".to_string()),
+                    x: 12.5,
+                    y: -3.0,
+                });
+            })
+            .unwrap();
+
+        let again = Prefs::load(&dir);
+        assert!(again.settings().collapsed);
+        assert!(!again.settings().strip_rows);
+        assert_eq!(again.settings().place, prefs.settings().place);
+        // 设备 ID 跟记录合并在意的是来源标记，改设置不能把它弄丢。
+        assert_eq!(again.settings().device_id, perch.device_id());
+        assert!(
+            !dir.join("settings.json.tmp").exists(),
+            "临时文件不该留在磁盘上"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_old_settings_file_without_the_new_fields_still_opens() {
+        let dir = temp_dir("prefs-old");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("settings.json"),
+            r#"{"deviceId":"dev-from-last-version"}"#,
+        )
+        .unwrap();
+        let prefs = Prefs::load(&dir);
+        // 旧版本只写过 deviceId；缺的字段要按默认值来，而不是当整份文件坏掉。
+        assert_eq!(prefs.settings().device_id, "dev-from-last-version");
+        assert!(!prefs.settings().collapsed);
+        assert!(prefs.settings().strip_rows);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_failed_settings_write_keeps_the_old_file_and_memory() {
+        let dir = temp_dir("prefs-fail");
+        fs::create_dir_all(&dir).unwrap();
+        const OLD: &str = r#"{"deviceId":"dev-1","collapsed":true}"#;
+        fs::write(dir.join("settings.json"), OLD).unwrap();
+        let mut prefs = Prefs::load(&dir);
+        // 占住临时文件的位置，让写入在这一步失败。
+        fs::create_dir(dir.join("settings.json.tmp")).unwrap();
+
+        let err = prefs
+            .update(|settings| settings.collapsed = false)
+            .unwrap_err();
+        assert!(err.contains("settings.json.tmp"), "实际收到：{err}");
+        assert!(
+            prefs.settings().collapsed,
+            "写失败时内存里的值也要回到改之前"
+        );
+        assert_eq!(fs::read_to_string(dir.join("settings.json")).unwrap(), OLD);
         let _ = fs::remove_dir_all(dir);
     }
 }
