@@ -82,18 +82,31 @@ pub fn pending<'a>(habit: &'a Habit, today: &str) -> Vec<&'a GoalEntry> {
         .collect()
 }
 
-/// 追加一条目标并把习惯上的当前值同步成最后一项。日期非法时不写，返回 false。
+/// 写一条目标：同一个生效日改成它，更早的插到前面，其余追加到最后；
+/// 习惯上的当前值始终同步成最后一项。日期非法时不写，返回 false。
 pub fn push_goal(habit: &mut Habit, entry: GoalEntry) -> bool {
-    if parse_date(&entry.effective_from).is_none() {
+    let Some(day) = parse_date(&entry.effective_from) else {
         return false;
-    }
-    match habit.goal_history.iter().position(|e| {
-        parse_date(&e.effective_from).unwrap_or(i64::MIN)
-            > parse_date(&entry.effective_from).unwrap_or(i64::MIN)
-    }) {
-        // 补一条更早的：插到前面，当前值不变。
-        Some(at) => habit.goal_history.insert(at, entry),
-        None => habit.goal_history.push(entry),
+    };
+    // 同一个生效日只留最后一次的打算：一周里改两次目标，「待生效」里不该留下互相矛盾的两行。
+    // 读不出日期的老条目不参与这个判断，原地留着，由 goal_on 自己跳过。
+    match habit
+        .goal_history
+        .iter()
+        .position(|e| parse_date(&e.effective_from) == Some(day))
+    {
+        Some(same_day) => habit.goal_history[same_day] = entry,
+        None => {
+            match habit
+                .goal_history
+                .iter()
+                .position(|e| parse_date(&e.effective_from).unwrap_or(i64::MIN) > day)
+            {
+                // 补一条更早的：插到前面，当前值不变。
+                Some(at) => habit.goal_history.insert(at, entry),
+                None => habit.goal_history.push(entry),
+            }
+        }
     }
     if let Some(last) = habit.goal_history.last() {
         habit.target_mode = last.target_mode;
@@ -284,5 +297,30 @@ mod tests {
         ));
         assert_eq!(h.goal_history.len(), 1);
         assert_eq!(h.weekly_target, Some(4));
+    }
+
+    #[test]
+    fn a_second_change_for_the_same_week_replaces_the_first() {
+        let mut h = habit("2026-10-01");
+        h.goal_history = vec![goal("2026-10-26", TargetMode::Weekly, Some(3))];
+        assert!(push_goal(
+            &mut h,
+            goal("2026-11-02", TargetMode::Weekly, Some(5))
+        ));
+        // 同一周里又改一次：待生效只留最后一次，否则面板上会出现两行互相矛盾的话。
+        assert!(push_goal(
+            &mut h,
+            goal("2026-11-02", TargetMode::Weekly, Some(4))
+        ));
+        let days: Vec<&str> = h
+            .goal_history
+            .iter()
+            .map(|e| e.effective_from.as_str())
+            .collect();
+        assert_eq!(days, vec!["2026-10-26", "2026-11-02"]);
+        assert_eq!(h.weekly_target, Some(4), "最后一项仍是当前值");
+        assert_eq!(goal_on(&h, "2026-10-26").weekly_target, Some(3));
+        assert_eq!(goal_on(&h, "2026-11-02").weekly_target, Some(4));
+        assert_eq!(pending(&h, "2026-10-26").len(), 1);
     }
 }

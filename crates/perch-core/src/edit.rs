@@ -166,6 +166,57 @@ pub fn add_habit(data: &mut Data, id: &str, input: NewHabit, now: Now) -> Result
     Ok(())
 }
 
+/// 修改习惯的元数据。这里**没有**目标字段：目标走 `change_goal`，新目标从下一个周一起生效，
+/// 改个名字不该把历史目标的生效日一起挪动（§2.4）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct HabitEdit {
+    pub name: String,
+    pub operational_definition: String,
+    pub unit: String,
+    pub confirmation_timing: ConfirmationTiming,
+    pub if_then: String,
+}
+
+/// 就地修改一个习惯。只动这些字段与 `updatedAt`（合并按它取后写），
+/// 不动 `createdAt`、不动 `goalHistory`、更不动任何已经发生的打卡事件。
+pub fn update_habit(
+    data: &mut Data,
+    habit_id: &str,
+    edit: HabitEdit,
+    now: Now,
+) -> Result<(), EditError> {
+    let name = edit.name.trim().to_string();
+    if name.is_empty() {
+        return Err(EditError::EmptyName);
+    }
+    let at = data
+        .habits
+        .iter()
+        .position(|h| h.id == habit_id)
+        .ok_or(EditError::HabitNotFound)?;
+    if is_removed(data, &data.habits[at]) {
+        return Err(EditError::HabitNotFound);
+    }
+    if is_archived(&data.habits[at]) {
+        return Err(EditError::HabitArchived);
+    }
+    // 单位留空落回新增时那份默认值，同一个来源，不在这儿另写一个字面量。
+    let blank_unit = NewHabit::default().unit;
+    let unit = edit.unit.trim();
+    let habit = &mut data.habits[at];
+    habit.name = name;
+    habit.operational_definition = edit.operational_definition.trim().to_string();
+    habit.unit = if unit.is_empty() {
+        blank_unit
+    } else {
+        unit.to_string()
+    };
+    habit.confirmation_timing = edit.confirmation_timing;
+    habit.if_then = edit.if_then.trim().to_string();
+    habit.updated_at = now.stamp();
+    Ok(())
+}
+
 /// 一条写入的来源：`source` 只做来源统计（`manual` / `morningReview`），`recorded_by` 是
 /// 设备 ID，合并与排查时用来区分两端（§3.3）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -405,6 +456,15 @@ pub fn tombstone(
     Ok(true)
 }
 
+/// 撤掉一条墓碑：删除后的撤销窗口用它（§2.9）。实体本来就没被硬删，
+/// 所以只要墓碑没了它就回到所有视图里。没有这条墓碑时返回 false，不报错。
+pub fn lift_tombstone(data: &mut Data, entity_type: EntityType, entity_id: &str) -> bool {
+    let before = data.tombstones.len();
+    data.tombstones
+        .retain(|t| !(t.entity_type == entity_type && t.entity_id == entity_id));
+    data.tombstones.len() != before
+}
+
 fn find_habit<'a>(data: &'a Data, habit_id: &str) -> Result<&'a Habit, EditError> {
     data.habits
         .iter()
@@ -553,6 +613,91 @@ mod tests {
             Err(EditError::EmptyName)
         );
         assert!(data.habits.is_empty());
+    }
+
+    /// 修改表单里除了名字都填上东西，免得每个测试重复一遍。
+    fn edit_of(name: &str) -> HabitEdit {
+        HabitEdit {
+            name: name.to_string(),
+            operational_definition: "睡前翻开书，读十页。".to_string(),
+            unit: "晚".to_string(),
+            confirmation_timing: ConfirmationTiming::NextDay,
+            if_then: "如果洗完澡，就把书放到枕边。".to_string(),
+        }
+    }
+
+    #[test]
+    fn editing_metadata_leaves_goals_and_events_alone() {
+        let mut data = one_habit();
+        tap(&mut data, "e1", TODAY, CheckinStatus::Done);
+        change_goal(&mut data, "h1", TargetMode::Weekly, Some(5), now()).unwrap();
+        let goals = data.habits[0].goal_history.clone();
+        let created = data.habits[0].created_at.clone();
+
+        let later = Now {
+            instant_ms: NOW_MS + 3_600_000,
+            offset_secs: CST,
+        };
+        update_habit(&mut data, "h1", edit_of("读书"), later).unwrap();
+        let habit = &data.habits[0];
+        assert_eq!(habit.name, "读书");
+        assert_eq!(habit.unit, "晚");
+        assert_eq!(habit.confirmation_timing, ConfirmationTiming::NextDay);
+        assert_eq!(habit.operational_definition, "睡前翻开书，读十页。");
+        assert_eq!(habit.if_then, "如果洗完澡，就把书放到枕边。");
+        // 改名字不是改目标：目标历史与「当前值」一个字都没动（§2.4）。
+        assert_eq!(habit.goal_history, goals);
+        assert_eq!(habit.created_at, created);
+        assert_eq!(habit.updated_at, "2026-10-26T05:00:00.000+08:00");
+        assert_eq!(data.checkin_events.len(), 1);
+        assert_eq!(status_on(&data, "h1", TODAY), DayStatus::Done);
+    }
+
+    #[test]
+    fn blank_name_rejects_the_edit_without_touching_the_habit() {
+        let mut data = one_habit();
+        let before = data.habits[0].clone();
+        assert_eq!(
+            update_habit(&mut data, "h1", edit_of("   "), now()),
+            Err(EditError::EmptyName)
+        );
+        assert_eq!(data.habits[0], before);
+    }
+
+    #[test]
+    fn archived_or_removed_habit_cannot_be_edited() {
+        let mut data = one_habit();
+        set_archived(&mut data, "h1", true, now()).unwrap();
+        assert_eq!(
+            update_habit(&mut data, "h1", edit_of("读书"), now()),
+            Err(EditError::HabitArchived)
+        );
+        set_archived(&mut data, "h1", false, now()).unwrap();
+        tombstone(&mut data, EntityType::Habit, "h1", "dev-a", now()).unwrap();
+        assert_eq!(
+            update_habit(&mut data, "h1", edit_of("读书"), now()),
+            Err(EditError::HabitNotFound)
+        );
+        assert_eq!(
+            update_habit(&mut data, "nope", edit_of("读书"), now()),
+            Err(EditError::HabitNotFound)
+        );
+        assert_eq!(data.habits[0].name, "阅读");
+    }
+
+    #[test]
+    fn blank_fields_fall_back_on_the_defaults_and_trim() {
+        let mut data = one_habit();
+        let mut edit = edit_of("散步");
+        edit.unit = "  ".to_string();
+        edit.operational_definition = "  ".to_string();
+        edit.if_then = "  ".to_string();
+        update_habit(&mut data, "h1", edit, now()).unwrap();
+        let habit = &data.habits[0];
+        // 单位清空不是「没有单位」，落回新增时那份默认值；定义与 if–then 留空就真的留空。
+        assert_eq!(habit.unit, NewHabit::default().unit);
+        assert_eq!(habit.operational_definition, "");
+        assert_eq!(habit.if_then, "");
     }
 
     #[test]
@@ -806,6 +951,25 @@ mod tests {
         assert_eq!(note.updated_at, "2026-10-26T05:00:00.000+08:00");
         // 编辑不改归属日：那天写的记录不会因为今天动了它就跳走。
         assert_eq!(note.local_date, TODAY);
+    }
+
+    #[test]
+    fn lifting_a_note_tombstone_is_how_undo_works() {
+        let mut data = one_habit();
+        add_note(&mut data, "n1", "一句话", now()).unwrap();
+        tombstone(&mut data, EntityType::Note, "n1", "dev-a", now()).unwrap();
+        assert!(
+            update_note(&mut data, "n1", "删掉之后改不动", now()).is_err(),
+            "已删除的记录不该还能编辑"
+        );
+        assert!(lift_tombstone(&mut data, EntityType::Note, "n1"));
+        update_note(&mut data, "n1", "撤销回来还能改", now()).unwrap();
+        assert_eq!(data.notes[0].text, "撤销回来还能改");
+        assert!(data.tombstones.is_empty());
+        assert!(
+            !lift_tombstone(&mut data, EntityType::Note, "n1"),
+            "没有墓碑就没有可撤的东西"
+        );
     }
 
     #[test]
