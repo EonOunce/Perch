@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capture;
+mod clock;
+mod commands;
 mod desktop_layer;
 mod probe_log;
+mod store;
 
 use std::ffi::c_void;
 use std::time::Duration;
@@ -231,9 +234,22 @@ fn main() {
             probe_cycle,
             probe_shell_event,
             probe_shift,
-            probe_quit
+            probe_quit,
+            commands::view_state,
+            commands::habit_add,
+            commands::checkin_set,
+            commands::mood_set,
+            commands::note_add
         ])
         .setup(|app| {
+            // 数据打不开就别开这张卡：半死的界面比一句明确的失败更难查。
+            let perch = store::Perch::open()?;
+            probe_log::note(format!(
+                "[boot] 数据已打开，设备 {}，习惯 {}",
+                perch.device_id(),
+                perch.data().habits.len()
+            ));
+            app.manage(store::SharedState::new(perch));
             let Some(win) = app.get_webview_window("main") else {
                 return Err("找不到 main 窗口".into());
             };

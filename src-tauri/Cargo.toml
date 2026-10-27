@@ -8,13 +8,18 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+perch-core = { path = "../crates/perch-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 稳定 ID：合并按 id 取并集（DESIGN §4.5），所以 ID 必须跨设备唯一。
+# 唯一备选是手写随机十六进制，那只是把「会不会撞」换成「我数对了没」。
+uuid = { version = "1", features = ["v4"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Storage_Xps",
     "Win32_System_LibraryLoader",
+    "Win32_System_Time",
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }

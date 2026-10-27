@@ -8,14 +8,17 @@
 //! - [`date_boundary`]：04:00 日界与日期算术
 //! - [`goal`]：`goalHistory` 生效规则
 //! - [`habits`]：墓碑 / 归档可见性与「一天一个有效事件」
+//! - [`edit`]：写入侧口径（追加事件、墓碑、标签解析）
 //! - [`storage`]：`data.json` 原子写与滚动备份
 
 pub mod date_boundary;
+pub mod edit;
 pub mod goal;
 pub mod habits;
 pub mod model;
 pub mod storage;
 
+pub use edit::{add_habit, set_checkin, EditError, NewHabit, Now};
 pub use habits::{counts, effective_events, status_on, DayCounts, DayStatus};
 pub use model::{Data, SCHEMA_VERSION};
 pub use storage::{StorageError, Store};
