@@ -1926,3 +1926,50 @@ input[type="range"]::-moz-range-thumb {
   height: 9px;
   border-radius: 50%;
 }
+
+/* --------------------------------------------------------------------------
+   同步设置（Phase 2d）
+   -------------------------------------------------------------------------- */
+
+.sync-state {
+  margin: 0 0 9px;
+  padding: 8px 10px;
+  border-radius: 11px;
+  background: var(--paper-deep);
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* 明文这条不折成脚注：进设置与第一次连接都该在眼前（不变项 #1、§4.1）。 */
+.sync-plain {
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--amber);
+  border-radius: 4px 10px 10px 4px;
+  background: var(--amber-wash);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+/* 表单比窗口高时，动作栏贴在底边：保存与立即同步不用先滚到底。
+   底色与 .sheet-body 底部同色，滚过去的内容不会露在半透明按钮下面。 */
+.sync .sheet-body { padding-bottom: 0; }
+
+.sync .sheet-foot {
+  position: sticky;
+  bottom: 0;
+  flex-wrap: wrap;
+  margin: 10px -14px 0;
+  padding: 9px 14px 13px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+/* 清口令靠左，另两个动作靠右。 */
+.sync .sheet-foot .text-btn:first-child { margin-right: auto; }
+
+.about-acts { margin: 9px 0 0; }
+
+.about-acts .zone-action { margin-left: 0; }

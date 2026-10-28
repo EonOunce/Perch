@@ -16,6 +16,8 @@ pub const RAISE_MS: u64 = 8_000;
 pub const TRAY_ID: &str = "perch-tray";
 pub const ID_QUICK: &str = "quick-record";
 pub const ID_VISIBLE: &str = "toggle-visible";
+pub const ID_SYNC_NOW: &str = "sync-now";
+pub const ID_SYNC_SETTINGS: &str = "sync-settings";
 pub const ID_ABOUT: &str = "about";
 pub const ID_AUTOSTART: &str = "autostart";
 pub const ID_MORNING: &str = "morning-raise";
@@ -103,6 +105,23 @@ pub fn show_about(app: &AppHandle) {
     let _ = app.emit("perch:about", ());
 }
 
+/// 托盘「立即同步」：配好了就排一轮；没配好就把设置打开——点了一项却什么也没发生，
+/// 比少一项更糟（§5.3）。
+fn sync_now(app: &AppHandle) {
+    if crate::sync::view(app).configured {
+        app.state::<crate::sync::Syncer>().request_manual();
+        probe_log::note("[tray] 已排入一轮手动同步");
+    } else {
+        show_sync_settings(app);
+    }
+}
+
+/// 同步设置面板走的还是「先短时提层、再让界面打开」那一条（§2.10）。
+fn show_sync_settings(app: &AppHandle) {
+    raise_temporary(app);
+    let _ = app.emit("perch:sync-settings", ());
+}
+
 /// 托盘菜单里两个「自己会变的项」的文案。
 ///
 /// Win11 的托盘弹层不给 `CheckMenuItem` 画对勾（实测 UIA 报 `toggle=On` 但界面上看不出来），
@@ -129,6 +148,9 @@ fn menu_of(app: &AppHandle, autostart: bool, morning: bool) -> tauri::Result<Men
     // 快捷键可能被别的程序占了，托盘这项是它的兜底入口（§2.7、§5.3）。
     let quick = MenuItemBuilder::with_id(ID_QUICK, "快速记录").build(app)?;
     let toggle = MenuItemBuilder::with_id(ID_VISIBLE, "显示 / 隐藏卡片").build(app)?;
+    // 手动同步与设置。没配好时「立即同步」直接打开设置，免得点了一个什么也不会发生的项。
+    let sync_now = MenuItemBuilder::with_id(ID_SYNC_NOW, "立即同步").build(app)?;
+    let sync_settings = MenuItemBuilder::with_id(ID_SYNC_SETTINGS, "同步设置").build(app)?;
     // 说明的唯一系统级入口（§2.10）：卡片右上角那个 ⓘ 之外的第二个入口。
     let about = MenuItemBuilder::with_id(ID_ABOUT, "关于栖迟").build(app)?;
     // 默认关，所以第一次看到的就是没有「已开启」三个字（§12 #6）。
@@ -152,7 +174,17 @@ fn menu_of(app: &AppHandle, autostart: bool, morning: bool) -> tauri::Result<Men
     let separator = PredefinedMenuItem::separator(app)?;
     Menu::with_items(
         app,
-        &[&quick, &toggle, &about, &startup, &dawn, &separator, &quit],
+        &[
+            &quick,
+            &toggle,
+            &sync_now,
+            &sync_settings,
+            &about,
+            &startup,
+            &dawn,
+            &separator,
+            &quit,
+        ],
     )
 }
 
@@ -175,6 +207,8 @@ pub fn build(app: &AppHandle) {
         .on_menu_event(|app, event| match event.id().as_ref() {
             ID_QUICK => crate::quick::toggle(app),
             ID_VISIBLE => toggle_visible(app),
+            ID_SYNC_NOW => sync_now(app),
+            ID_SYNC_SETTINGS => show_sync_settings(app),
             ID_ABOUT => show_about(app),
             ID_AUTOSTART => crate::autostart::toggle(app),
             ID_MORNING => crate::morning::toggle(app),
@@ -197,7 +231,7 @@ pub fn build(app: &AppHandle) {
     }
     match builder.build(app) {
         Ok(_) => probe_log::note(
-            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、关于栖迟、开机自启、早晨浮出、退出）",
+            "[tray] 托盘已挂上（左键短时提到前台，右键菜单：快速记录、显示/隐藏、立即同步、同步设置、关于栖迟、开机自启、早晨浮出、退出）",
         ),
         Err(e) => probe_log::note(format!("[tray] 建托盘失败：{e}")),
     }

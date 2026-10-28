@@ -73,6 +73,8 @@ pub struct SyncView {
     pub enabled: bool,
     /// 账号、密码、地址都齐了。缺一样就不会自动跑。
     pub configured: bool,
+    /// 本机存着一份口令。界面据此决定说「已保存」还是「还没填」。
+    pub has_password: bool,
     pub running: bool,
     pub queued: bool,
     pub auto_paused: bool,
@@ -157,7 +159,24 @@ impl Syncer {
 
     fn resume(&self) {
         // 手动同步或改完设置：暂停位与退避一起清，不然改对了还要空等 15 分钟（§4.7）。
-        self.lock().state.resume();
+        // 上一轮的报错也一起收起——人已经动手处理了；这一轮要是还不行，会重新写一条。
+        let mut sig = self.lock();
+        sig.state.resume();
+        sig.last_error = None;
+        sig.last_note = None;
+    }
+
+    /// 换账号或换地址时把基线清掉：旧的 ETag 与旧的「上次合并快照」属于另一个远端，
+    /// 拿它当共同祖先就会把新远端里本来就有的东西误判成删除。清掉之后第一次同步按
+    /// 「没有基线」做保守并集，宁可多留，不误删。
+    fn reset_baseline(&self) {
+        let mut sig = self.lock();
+        sig.state = SyncState::default();
+        sig.last_error = None;
+        sig.last_note = None;
+        let snapshot = sig.state.clone();
+        drop(sig);
+        persist_state(&self.root, &snapshot);
     }
 
     /// 同步成功：基线、ETag、最后成功时间全换成这一份，失败计数清零。
@@ -451,6 +470,7 @@ pub fn view(app: &AppHandle) -> SyncView {
     SyncView {
         enabled: prefs.enabled,
         configured: !prefs.account.is_empty() && !prefs.endpoint.is_empty() && has_password,
+        has_password,
         running: sig.running,
         queued: sig.pending.is_some(),
         auto_paused: sig.state.auto_paused,
@@ -524,6 +544,9 @@ pub fn sync_configure(
     enabled: Option<bool>,
     password: Option<String>,
 ) -> Result<SyncView, String> {
+    if let Some(message) = endpoint_error(endpoint.as_deref()) {
+        return Err(message);
+    }
     let root = app.state::<Syncer>().root.clone();
     if let Some(password) = &password {
         if password.trim().is_empty() {
@@ -532,6 +555,10 @@ pub fn sync_configure(
             credential::save(&root, password)?;
         }
     }
+    let before = app
+        .state::<SharedPrefs>()
+        .with(|prefs| Ok(prefs.settings().clone()))
+        .unwrap_or_default();
     app.state::<SharedPrefs>().with(|prefs| {
         prefs.update(|settings| {
             if let Some(account) = &account {
@@ -552,10 +579,34 @@ pub fn sync_configure(
     })?;
 
     let syncer = app.state::<Syncer>();
+    let after = app
+        .state::<SharedPrefs>()
+        .with(|prefs| Ok(prefs.settings().clone()))
+        .unwrap_or_default();
+    if before.sync_account != after.sync_account || before.sync_endpoint != after.sync_endpoint {
+        syncer.reset_baseline();
+    }
     // 用户刚改过设置：暂停位与退避都清掉，然后马上试一次——改对了不该等 15 分钟。
     syncer.resume();
     syncer.soon();
     Ok(view(&app))
+}
+
+/// 地址规矩在落盘前就说清楚，不等第一次同步才报（§4.2）。
+/// 本地桩开关只在调试构建里认，正式构建无论填什么都要求 `https://`。
+fn endpoint_error(endpoint: Option<&str>) -> Option<String> {
+    let trimmed = endpoint?.trim();
+    let target = if trimmed.is_empty() {
+        DEFAULT_SYNC_ENDPOINT
+    } else {
+        trimmed
+    };
+    let allow_plain = stub_endpoint().is_some();
+    if perch_core::sync::webdav::endpoint_allowed(target, allow_plain) {
+        None
+    } else {
+        Some("地址要以 https:// 开头，也不要把账号密码写进地址里。".to_string())
+    }
 }
 
 #[cfg(test)]
@@ -580,6 +631,17 @@ mod tests {
         path.push(format!("perch-sync-{tag}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    /// §4.2 的地址规矩在保存时就拦住，不等第一次同步才报；留空等于用默认的坚果云地址。
+    #[test]
+    fn the_endpoint_must_be_https_and_carry_no_credentials() {
+        assert!(endpoint_error(None).is_none(), "没传地址就不改");
+        assert!(endpoint_error(Some("")).is_none(), "留空回到默认地址");
+        assert!(endpoint_error(Some("https://dav.jianguoyun.com/dav/")).is_none());
+        assert!(endpoint_error(Some("http://dav.jianguoyun.com/dav/")).is_some());
+        assert!(endpoint_error(Some("https://user:pass@dav.jianguoyun.com/dav/")).is_some());
+        assert!(endpoint_error(Some("dav.jianguoyun.com/dav/")).is_some());
     }
 
     /// 没开、没配好、暂停中，一律不该自动跑。

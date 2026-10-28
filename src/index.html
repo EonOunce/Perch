@@ -252,6 +252,55 @@
     </form>
   </div>
 
+  <!-- 同步（Phase 2d）：状态、账号、应用专用密码和自动同步都在这一张里。
+       同步内容是明文（不变项 #1）——这条说明固定挂在表单顶部，进设置和第一次连接都在眼前，
+       不靠弹窗再问一遍，也不反复打扰。 -->
+  <div class="sheet sync" id="syncSheet" hidden>
+    <form class="sheet-body" id="syncForm" novalidate>
+      <div class="sheet-head">
+        <h3>同步</h3>
+        <button class="icon-btn" id="syncClose" type="button" aria-label="关闭同步设置">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <p class="sync-state" id="syncState" role="status" aria-live="polite">—</p>
+
+      <p class="sync-plain">同步内容为明文：记录、心情和打卡以纯文本保存在坚果云，只有传输走 HTTPS；访问仅受你的坚果云账号保护。应用专用密码只保存在这台电脑。</p>
+
+      <div class="field">
+        <span>怎么同步</span>
+        <div class="seg" id="syncAuto" role="group" aria-label="自动同步">
+          <button type="button" data-value="off" class="is-on">手动</button>
+          <button type="button" data-value="on">自动</button>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>坚果云账号</span>
+        <input id="syncAccount" maxlength="120" autocomplete="username" placeholder="登录坚果云的邮箱">
+      </label>
+
+      <label class="field">
+        <span>应用专用密码</span>
+        <input id="syncPassword" type="password" maxlength="120" autocomplete="current-password" placeholder="不是登录密码">
+      </label>
+      <p class="sheet-hint" id="syncPasswordHint" hidden>这台电脑已经存了一份，留空表示不改。</p>
+
+      <label class="field">
+        <span>地址</span>
+        <input id="syncEndpoint" inputmode="url" autocomplete="url" placeholder="https://dav.jianguoyun.com/dav/">
+      </label>
+      <p class="sheet-hint">在坚果云网页版的「账户信息 → 安全选项」里生成应用专用密码。</p>
+
+      <div class="sheet-foot">
+        <button class="text-btn" id="syncForget" type="button" hidden>清除口令</button>
+        <button class="text-btn" id="syncRun" type="button">立即同步</button>
+        <button class="save" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
   <!-- 开机自启的首次一问（DESIGN §5.3、§12 #6）：默认关，只问这一次。
        两个答案都算回答；按 Esc 走开不算，下次开机还会问。之后再改走托盘菜单里那一项。 -->
   <div class="sheet" id="askSheet" hidden>
@@ -268,7 +317,7 @@
   </div>
 
   <!-- 关于栖迟（§2.10）：所有解释性长句集中在这里，主界面只留动作、数据与状态词。
-       分节按当前真的有的功能列——标记与分段对比是 Phase 3，同步是 Phase 2，这里不提前描述成已存在。 -->
+       分节按当前真的有的功能列——标记与分段对比是 Phase 3，这里不提前描述成已存在。 -->
   <div class="sheet about" id="aboutSheet" hidden>
     <section class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
       <div class="sheet-head">
@@ -320,8 +369,10 @@
 
       <section class="about-section" id="about-sync">
         <h4>同步与隐私</h4>
-        <p>同步还没接进来。接上之后走坚果云 WebDAV，记录、日记和打卡内容以明文保存，只有传输走 HTTPS——这是有意选择的「简单优先」，栖迟不做客户端加密，也不会声称已经加密。</p>
-        <p>坚果云的应用专用密码只保存在本机，不参与同步、不写日志、不导出。同步按本地优先：没有网络时照常记录，恢复连接后再合并。</p>
+        <p>同步走坚果云 WebDAV，记录、心情和打卡以<strong>明文</strong>保存在你的坚果云里，只有传输走 HTTPS。这是有意选择的「简单优先」：栖迟不做客户端加密，也不会声称已经加密；账号本身的访问安全由坚果云负责。</p>
+        <p>应用专用密码只保存在这台电脑（由 Windows 的数据保护接口保管），不参与同步、不写日志、不导出。同步按本地优先：没有网络时照常记录，恢复连接后再合并；两台设备改了同一条碎碎念时，两份正文都会留下，其中一份标为副本。</p>
+        <p>自动同步默认关着。打开后，启动、回到卡片、本地改动后和每 15 分钟都会各同步一次；也可以随时在托盘菜单或下面的设置里点「立即同步」。</p>
+        <p class="about-acts"><button class="zone-action" id="aboutSync" type="button">同步设置</button></p>
       </section>
 
       <section class="about-section" id="about-quick">
@@ -334,8 +385,9 @@
 
       <section class="about-section" id="about-build">
         <h4>这个版本</h4>
-        <p>栖迟 Perch <span id="aboutVersion">—</span>，Windows 本地版。记录存在这台电脑的 <code>%LOCALAPPDATA%\Perch\data.json</code>，窗口位置、折叠状态和开关存在同一目录的 <code>settings.json</code>，两者都不上传。</p>
-        <p>还没做的：云同步、每周回顾导出、标记与分段对比。这些不影响现在记录、确认和看统计。</p>
+        <p>栖迟 Perch <span id="aboutVersion">—</span>，Windows 本地版。记录存在这台电脑的 <code>%LOCALAPPDATA%\Perch\data.json</code>，打开同步后会以明文上传到你的坚果云；窗口位置、同步开关等本机设置存在同一目录的 <code>settings.json</code>，同步口令单独存在 <code>credential.bin</code>，这两样都不上传。</p>
+        <p>还没做的：每周回顾导出、标记与分段对比。这些不影响现在记录、确认和看统计。</p>
+        <p>同步也还在早期：目前只在本机的测试服务上验证过，坚果云真机和两台设备同时用同一账号都还没试。</p>
       </section>
     </section>
   </div>
@@ -418,5 +470,6 @@
 <script src="collapse.js"></script>
 <script src="autostart.js"></script>
 <script src="about.js"></script>
+<script src="sync.js"></script>
 </body>
 </html>
