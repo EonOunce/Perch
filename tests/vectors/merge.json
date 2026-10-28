@@ -686,6 +686,126 @@
           { "id": "note_new", "text": "新版本写的正文", "conflictOf": null }
         ]
       }
+    },
+    {
+      "label": "上一轮的副本已经传上去了，重合一次不再积第二份同样的正文",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "手机上改过的正文",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "本机改过的正文",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          },
+          {
+            "id": "note_1#20261021T0900000000800",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "手机上改过的正文",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00",
+            "conflictOf": "note_1"
+          }
+        ]
+      },
+      "base": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "两端共同的原文",
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "notes": [
+          { "id": "note_1", "text": "本机改过的正文", "conflictOf": null },
+          {
+            "id": "note_1#20261021T0900000000800",
+            "text": "手机上改过的正文",
+            "conflictOf": "note_1"
+          }
+        ]
+      }
+    },
+    {
+      "label": "换个日子写过同样的话是另一条记录，副本照旧要生成",
+      "local": {
+        "schemaVersion": 1,
+        "deviceId": "phone-android",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "同一句话",
+            "updatedAt": "2026-10-21T09:00:00.000+08:00"
+          },
+          {
+            "id": "note_9",
+            "createdAt": "2026-10-19T09:00:00.000+08:00",
+            "localDate": "2026-10-19",
+            "text": "同一句话",
+            "updatedAt": "2026-10-19T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "remote": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "本机改过的正文",
+            "updatedAt": "2026-10-22T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "base": {
+        "schemaVersion": 1,
+        "deviceId": "pc-windows",
+        "notes": [
+          {
+            "id": "note_1",
+            "createdAt": "2026-10-20T09:00:00.000+08:00",
+            "localDate": "2026-10-20",
+            "text": "两端共同的原文",
+            "updatedAt": "2026-10-20T09:00:00.000+08:00"
+          }
+        ]
+      },
+      "expect": {
+        "notes": [
+          { "id": "note_1", "text": "本机改过的正文", "conflictOf": null },
+          {
+            "id": "note_1#20261021T0900000000800",
+            "text": "同一句话",
+            "conflictOf": "note_1"
+          },
+          { "id": "note_9", "text": "同一句话", "conflictOf": null }
+        ]
+      }
     }
   ]
 }

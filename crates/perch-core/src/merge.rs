@@ -185,6 +185,8 @@ fn merge_notes(local: &Data, remote: &Data, base: Option<&Data>) -> Vec<Note> {
 
     let mut taken: HashSet<String> = pairs.keys().map(|k| (*k).to_string()).collect();
     let mut out: Vec<Note> = Vec::new();
+    // 冲突副本留到第二轮再生成：`out` 得先收齐两侧所有活下来的记录，才认得出「同样的正文已经在别的 id 上了」。
+    let mut copies: Vec<(String, Note)> = Vec::new();
     for (id, (a, b)) in pairs {
         let (a, b) = match (a, b) {
             // 两侧一模一样、或只有一侧有：没有并发，直接收。
@@ -218,13 +220,31 @@ fn merge_notes(local: &Data, remote: &Data, base: Option<&Data>) -> Vec<Note> {
         }
         let (win, lose) = rank_order(a, b, note_rank);
         out.push((*win).clone());
-        let mut copy = (*lose).clone();
-        copy.conflict_of = Some((*id).to_string());
-        copy.id = free_copy_id(&mut taken, id, &lose.updated_at);
-        out.push(copy);
+        copies.push(((*id).to_string(), (*lose).clone()));
+    }
+    for (original, mut lose) in copies {
+        // 同一天的同样正文已经在别处了，就不再造第二份：正文没丢，副本只是噪音。
+        // 少了这一步，「上一轮没传上去」会一轮积一份副本（同步状态机的重试会踩到）。
+        let key = prose_key(&lose);
+        if out.iter().any(|n| prose_key(n) == key) {
+            continue;
+        }
+        lose.conflict_of = Some(original.clone());
+        lose.id = free_copy_id(&mut taken, &original, &lose.updated_at);
+        out.push(lose);
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
+}
+
+/// 「同样的正文」= 同一天的同样文字加同样标签。日期也要算进去：
+/// 换个日子写过同样的话是另一条记录，把它当重复丢掉才是真丢内容。
+fn prose_key(note: &Note) -> (&str, &[String], &str) {
+    (
+        note.text.as_str(),
+        note.tags.as_slice(),
+        note.local_date.as_str(),
+    )
 }
 
 fn same_prose(a: &Note, b: &Note) -> bool {
@@ -843,6 +863,81 @@ mod tests {
             fingerprint(&merge(&remote, &local, Some(&base))),
             fingerprint(&merged),
             "谁留原 id 不能看谁是本地，否则两端合不到一起"
+        );
+    }
+
+    #[test]
+    fn a_loser_whose_text_already_lives_elsewhere_gets_no_second_copy() {
+        // 重试路径：上一轮合并算出的副本已经传上去了，这一侧还没成功写入。
+        // 再合一次时败者的正文已经在别的 id 上活着，不该再积出一份一模一样的。
+        let base = snapshot(
+            "pc",
+            vec![],
+            vec![note("n1", "原文", "2026-10-20T09:00:00.000+08:00")],
+        );
+        let mut copy = note("n1", "手机写的", "2026-10-21T09:00:00.000+08:00");
+        copy.conflict_of = Some("n1".to_string());
+        copy.id = "n1#20261021T0900000000800".to_string();
+        let phone = snapshot(
+            "phone",
+            vec![],
+            vec![note("n1", "手机写的", "2026-10-21T09:00:00.000+08:00")],
+        );
+        let pc = snapshot(
+            "pc",
+            vec![],
+            vec![
+                note("n1", "本机写的", "2026-10-22T09:00:00.000+08:00"),
+                copy.clone(),
+            ],
+        );
+        let merged = merge(&phone, &pc, Some(&base));
+        assert_eq!(merged.notes.len(), 2, "两份正文，不该有第三份");
+        assert_eq!(merged.notes[0].id, "n1");
+        assert_eq!(merged.notes[1].id, copy.id, "沿用已经在那儿的副本 id");
+        assert_eq!(
+            merged.notes.iter().filter(|n| n.text == "手机写的").count(),
+            1,
+            "同样的正文只留一份"
+        );
+        assert_eq!(
+            fingerprint(&merge(&pc, &phone, Some(&base))),
+            fingerprint(&merged)
+        );
+    }
+
+    #[test]
+    fn a_copy_is_still_made_when_the_same_text_belongs_to_another_day() {
+        // 换个日子写过同样的话是另一条记录，不能当重复丢掉——那才是真丢内容。
+        let base = snapshot(
+            "pc",
+            vec![],
+            vec![note("n1", "原文", "2026-10-20T09:00:00.000+08:00")],
+        );
+        let mut twin = note("n9", "手机写的", "2026-10-21T09:00:00.000+08:00");
+        twin.local_date = "2026-10-19".to_string();
+        let phone = snapshot(
+            "phone",
+            vec![],
+            vec![
+                note("n1", "手机写的", "2026-10-21T09:00:00.000+08:00"),
+                twin,
+            ],
+        );
+        let pc = snapshot(
+            "pc",
+            vec![],
+            vec![note("n1", "本机写的", "2026-10-22T09:00:00.000+08:00")],
+        );
+        let merged = merge(&phone, &pc, Some(&base));
+        assert_eq!(merged.notes.len(), 3, "败者要留下，副本 id 现算");
+        assert_eq!(
+            merged
+                .notes
+                .iter()
+                .filter(|n| n.conflict_of.as_deref() == Some("n1"))
+                .count(),
+            1
         );
     }
 
