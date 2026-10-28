@@ -55,7 +55,7 @@ fn toggle_now(app: &AppHandle) {
 }
 
 fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("quick.html".into()))
+    let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("quick.html".into()))
         .title("栖迟 · 快速记录")
         .inner_size(WIDTH, HEIGHT)
         .resizable(false)
@@ -64,7 +64,12 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
-        .build()
+        .build()?;
+    // `skipTaskbar` 只摘任务栏按钮，Alt+Tab 仍会列出它；工具窗口样式才真正安静（§5.3）。
+    if let Ok(hwnd) = win.hwnd() {
+        unsafe { crate::desktop_layer::mark_tool_window(hwnd.0) };
+    }
+    Ok(win)
 }
 
 fn set_visible(app: &AppHandle, win: &WebviewWindow, show: bool) {

@@ -389,8 +389,10 @@ async function addMarker(form) {
     return;
   }
   try {
+    const args = statsArgs();
+    delete args.habit; // 服务端按 habitId 回快照，不跟当前筛选走
     paintStats(await invoke('marker_add', {
-      ...statsArgs(),
+      ...args,
       habitId: st.scopeId,
       localDate: date,
       label,

@@ -388,7 +388,7 @@ pub fn stats(data: &Data, today: &str, offset_secs: i32, range: Range, scope: &s
         // §6.4：习惯范围是「全部」时不做高低完成日对比，跨习惯混合没有解释意义。
         compare: (!is_all).then(|| compare(data, &rows[0], &range, &yesterday)),
         // §6.6：分段属于具体习惯，跨习惯混合没有解释意义，所以也只对单习惯给。
-        pro: (!is_all).then(|| pro_view(data, &listed[0], &range, today, &yesterday, offset_secs)),
+        pro: (!is_all).then(|| pro_view(data, listed[0], &range, today, &yesterday, offset_secs)),
         review: review(data, today, offset_secs),
         today: today.to_string(),
         yesterday,

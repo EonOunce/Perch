@@ -28,6 +28,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_Controls",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 # 同步的 HTTP 客户端。TLS 只用 Windows 自带的 schannel（native-tls）：

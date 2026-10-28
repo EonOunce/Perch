@@ -19,15 +19,16 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     ChildWindowFromPoint, CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows,
     FindWindowExW, GetAncestor, GetClassNameW, GetClientRect, GetMessageW, GetWindowLongPtrW,
     GetWindowRect, IsWindow, IsWindowVisible, PostMessageW, PostQuitMessage, RegisterClassExW,
     RegisterWindowMessageW, SetParent, SetWindowLongPtrW, SetWindowPos, TranslateMessage,
     WindowFromPoint, CS_HREDRAW, GA_PARENT, GA_ROOT, GWL_EXSTYLE, GWL_STYLE, HWND_BOTTOM, HWND_TOP,
-    MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WM_DESTROY, WM_POWERBROADCAST,
-    WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
-    WS_VISIBLE,
+    MSG, STYLESTRUCT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WM_DESTROY,
+    WM_POWERBROADCAST, WM_STYLECHANGED, WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_APPWINDOW,
+    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
 };
 
 use crate::probe_log;
@@ -39,6 +40,9 @@ const WATCH_CLASS: &str = "PerchLayerWatch";
 const PBT_APMSUSPEND: WPARAM = 4;
 const PBT_APMRESUMESUSPEND: WPARAM = 7;
 const PBT_APMRESUMEAUTOMATIC: WPARAM = 18;
+
+/// 工具窗口子类过程的身份；本模块只用这一个，随便取一个记得住的数。
+const TOOL_ID: usize = 0x5045_5243;
 
 pub const DEFAULT_MARGIN: i32 = 24;
 
@@ -774,6 +778,57 @@ pub fn start_heartbeat() {
     });
 }
 
+/// 把窗口标成工具窗口：不进任务栏、也不进 Alt+Tab。
+///
+/// 配置里的 `skipTaskbar` 只通过 ITaskbarList 摘掉任务栏按钮（2026-10-28 实测按钮确实不在），
+/// 样式位仍带着 `WS_EX_APPWINDOW`——Alt+Tab 会把它当成可切换的应用窗口列出来，标题也会被
+/// 读屏器念到。补上 `WS_EX_TOOLWINDOW` 并去掉 `WS_EX_APPWINDOW` 才真正安静。
+///
+/// 只改一次不够：tao 把 `ON_TASKBAR` 写死成无父窗口的默认标志，每次 `show()`/换置顶都会
+/// 用 `SetWindowLongW` 把整套样式重算一遍，`WS_EX_APPWINDOW` 就又回来了。所以还要挂一个
+/// 子类过程，在 `WM_STYLECHANGED` 里把这位改回去（改回去的那次不再带 APPWINDOW，不会递归）。
+/// 实测客户区尺寸、圆角与透明角都不变。
+pub unsafe fn mark_tool_window(hwnd: HWND) {
+    apply_tool_style(hwnd);
+    if SetWindowSubclass(hwnd, Some(keep_tool_window), TOOL_ID, 0) == 0 {
+        probe_log::note("[plain] 工具窗口样式守卫没挂上，只改了这一次");
+    }
+}
+
+fn apply_tool_style(hwnd: HWND) {
+    let before = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 };
+    let after = tool_window_exstyle(before);
+    if after != before {
+        unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, after as isize) };
+        probe_log::note(format!(
+            "[plain] 工具窗口样式 {before:#010x} → {after:#010x}"
+        ));
+    }
+}
+
+unsafe extern "system" fn keep_tool_window(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    if msg == WM_STYLECHANGED && wparam as i32 == GWL_EXSTYLE {
+        let change = &*(lparam as *const STYLESTRUCT);
+        if change.styleNew & WS_EX_APPWINDOW != 0 {
+            let now = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, tool_window_exstyle(now) as isize);
+        }
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+/// 样式位怎么算是纯函数：真窗口在测试里造不出来，位运算可以盯住。
+fn tool_window_exstyle(ex: u32) -> u32 {
+    (ex | WS_EX_TOOLWINDOW) & !WS_EX_APPWINDOW
+}
+
 /// 去掉 DWM 沿窗口矩形画的那圈 1px 边框线。卡片是 22px 圆角、窗口本身透明，
 /// 这圈直角线会露在圆角外面；`DWMWA_BORDER_COLOR = NONE` 让 DWM 不画它。
 /// show 之后立刻调是安全的（2026-10-27 真机实测）。
@@ -876,5 +931,15 @@ mod tests {
         };
         let progman = candidate(2, false, true, false);
         assert_eq!(pick_host(&[hidden, progman]), Some(progman));
+    }
+
+    #[test]
+    fn tool_window_style_drops_appwindow_and_is_idempotent() {
+        let tauri_style = 0x0004_0110;
+        let once = tool_window_exstyle(tauri_style);
+        assert_eq!(once & WS_EX_TOOLWINDOW, WS_EX_TOOLWINDOW);
+        assert_eq!(once & WS_EX_APPWINDOW, 0);
+        assert_eq!(once & 0x0000_0110, 0x0000_0110, "其他位不动");
+        assert_eq!(tool_window_exstyle(once), once);
     }
 }

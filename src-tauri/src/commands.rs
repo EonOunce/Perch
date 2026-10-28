@@ -431,10 +431,11 @@ pub fn marker_add(
     range: String,
     from: Option<String>,
     to: Option<String>,
-    habit: Option<String>,
     state: tauri::State<'_, SharedState>,
 ) -> Result<StatsState, String> {
-    commit_stats(&state, range, from, to, habit, move |data| {
+    // 快照永远回这个习惯，不跟当前筛选走：标记只属于一个习惯（§6.6）。
+    let snapshot = Some(habit_id.clone());
+    commit_stats(&state, range, from, to, snapshot, move |data| {
         edit::add_marker(
             data,
             &new_id(),

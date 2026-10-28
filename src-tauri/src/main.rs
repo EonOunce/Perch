@@ -25,7 +25,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
 
-const PROBE_TITLE: &str = "PerchLayerProbe";
+const PROBE_TITLE: &str = "栖迟";
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -570,6 +570,10 @@ fn main() {
             let Some(win) = app.get_webview_window("main") else {
                 return Err("找不到 main 窗口".into());
             };
+            // 卡片是桌面层的小工具，不是可切换的应用窗口：不进任务栏也不进 Alt+Tab（§5.2）。
+            if let Ok(hwnd) = win.hwnd() {
+                unsafe { desktop_layer::mark_tool_window(hwnd.0) };
+            }
             // 窗口是 visible:false 创建的：先把尺寸与坐标摆好，等界面画完第一帧再露面。
             // 露出来那一刻就是记住的样子，不会先闪一下右下角再跳过去。
             win.set_size(tauri::LogicalSize::new(w as f64, h as f64))?;

@@ -120,9 +120,13 @@
 - 她本人实机确认：**最小化别的窗口、按 `Win+D` 之后卡片都还在**，并且**点得动**（打卡按钮有反应）。
 - 同一张卡片被 WPS 的最大化窗口正常盖住：`WindowFromPoint` 四个点全部归 `OpusApp`(WPS)，符合「桌面层不是置顶」。
 - 心跳日志：`层=普通窗口 父=0x0 根=…/Tauri Window 穿透=false`。
-- **还没弄清**：`GetWindowLong(GWL_EXSTYLE)` 读回来是 `0x00040110` = `WS_EX_APPWINDOW|WS_EX_WINDOWEDGE|WS_EX_ACCEPTFILES`，
-  既没有 `WS_EX_TOOLWINDOW(0x80)` 也没有 `WS_EX_NOACTIVATE`——说明 `skipTaskbar` 实际上没落到窗口样式上，
-  「Win+D 吹不掉」的真正原因还不是当初猜的"工具窗口被显示桌面跳过"。这条待查，不影响功能但会影响任务栏。
+- **`skipTaskbar` 只摘任务栏按钮，不改变样式位**（2026-10-28 查明）：`GetWindowLong(GWL_EXSTYLE)` 读回来是
+  `0x00040110` = `WS_EX_APPWINDOW|WS_EX_WINDOWEDGE|WS_EX_ACCEPTFILES`，既没有 `WS_EX_TOOLWINDOW(0x80)`
+  也没有 `WS_EX_NOACTIVATE`。tao 0.37 的 `set_skip_taskbar` 只调 `ITaskbarList::DeleteTab`；无父窗口的窗口在 tao
+  里固定带 `ON_TASKBAR`，每次重算样式都会把 `WS_EX_APPWINDOW` 写回来。UI 自动化枚举任务栏按钮确认**没有栖迟的按钮**，
+  但 Alt+Tab 仍会把它当成可切换窗口列出来，窗口标题也还是探针期的 `PerchLayerProbe`。
+  v0.7.3 起主卡片与快速记录窗都补上 `WS_EX_TOOLWINDOW`、去掉 `WS_EX_APPWINDOW`，并用子类过程在 `WM_STYLECHANGED`
+  里守住（否则 `show()`/换置顶会把样式重算回去）；主窗口标题同时改成「栖迟」。改样式前后客户区尺寸、圆角与透明角均无变化。
 - **还没测**：打字（需要焦点）、拖动、真·Explorer 重启、睡眠唤醒、150%/双屏、长跑。
 
 代码入口：`desktop_layer::embed_requested()`（`PERCH_DESKTOP_EMBED=1` 才试方案 A，方便换机器复测）、
@@ -136,6 +140,8 @@
 - 抓屏（`BitBlt`）读的是最终合成结果，所以"卡片被别的窗口挡住"会照实拍进去，不能当成渲染失败的证据。
 - `PrintWindow` 抓的是窗口重定向表面，**窗口在屏上没画出来也能抓到内容**——只用它验证「可见」会得到假阳性，
   必须配合真实屏幕抓取（`PIL.ImageGrab` + `SetProcessDpiAwareness(2)`）。
+- 主窗标题已从 `PerchLayerProbe` 改成「栖迟」（v0.7.3）：按旧标题找窗口的探针脚本要改按类名或新标题找。
+  控制台编码还会把中文标题显示成乱码，比较标题时用 `[Console]::OutputEncoding` 设 UTF8，或干脆按进程枚举。
 
 ## 9. 窗口外沿的 1px 直角线（2026-10-27）
 
