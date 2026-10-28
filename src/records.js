@@ -45,9 +45,30 @@ const findNote = (id) => {
 const dayHeading = (localDate, today) =>
   `${relDay(localDate, today)} · ${weekdayOf(localDate)}`;
 
+/* 命中区间由 Rust 给（字符下标），这里只负责包一层 <mark>：按码点切，
+   不会把 emoji 的代理对切坏，也不在 JS 里再判一次大小写。 */
+function markHits(text, hits) {
+  if (!hits || !hits.length) return esc(text);
+  const chars = [...text];
+  let html = '';
+  let cursor = 0;
+  for (const [start, end] of hits) {
+    if (start < cursor || end <= start || end > chars.length) continue;
+    html += esc(chars.slice(cursor, start).join(''));
+    html += `<mark>${esc(chars.slice(start, end).join(''))}</mark>`;
+    cursor = end;
+  }
+  return html + esc(chars.slice(cursor).join(''));
+}
+
+const tagsHtml = (tags, hits) => (tags.length
+  ? `<div class="note-tags">${tags.map((tag, index) => `<span class="chip${hits && hits[index] ? ' is-hit' : ''}">#${esc(tag)}</span>`).join('')}</div>`
+  : '');
+
 const noteRowHtml = (note) => `<div class="rec-item">
     <div class="rec-head">
       <span class="rec-time">${esc(note.timeOfDay)}</span>
+      ${note.conflict ? '<span class="rec-copy" title="同步冲突副本">副本</span>' : ''}
       <span class="rec-acts">
         <button class="tool-btn" type="button" data-edit="${esc(note.id)}"
                 aria-label="修改这条记录">${icon('edit')}</button>
@@ -55,11 +76,23 @@ const noteRowHtml = (note) => `<div class="rec-item">
                 aria-label="移除这条记录">${icon('trash')}</button>
       </span>
     </div>
-    <p class="rec-text">${esc(note.text)}</p>
-    ${note.tags.length
-      ? `<div class="note-tags">${note.tags.map((t) => `<span class="chip">#${esc(t)}</span>`).join('')}</div>`
-      : ''}
+    <p class="rec-text">${markHits(note.text, note.textHits)}</p>
+    ${tagsHtml(note.tags, note.tagHits)}
   </div>`;
+
+/* 「以前的一天」只是一段旧记录，不是待办：没有按钮，筛选时也不出现。
+   年份不同的日期把年份写出来，避免「8 月 12 日」分不清是哪一年。 */
+const memoryDate = (localDate, today) => {
+  const [year, month, day] = parts(localDate);
+  const sameYear = year === parts(today)[0];
+  return `${sameYear ? '' : `${year}年`}${month}月${day}日 · ${weekdayOf(localDate)}`;
+};
+
+const memoryCardHtml = (memory, today) => `<section class="rec-memory" aria-label="以前的一天">
+    <p class="rec-memory-head"><span>以前的一天${memory.conflict ? '<span class="rec-copy" title="同步冲突副本">副本</span>' : ''}</span><span class="rec-memory-date">${esc(memoryDate(memory.localDate, today))}</span></p>
+    <p class="rec-memory-text">${esc(memory.text)}</p>
+    ${tagsHtml(memory.tags)}
+  </section>`;
 
 // 移除的第一次点击只把这一条换成就地确认，不弹框、不挡别条（§2.5、§2.9）。
 const noteConfirmHtml = (note) => `<div class="rec-item is-confirm">
@@ -106,7 +139,8 @@ function paintRecords(state) {
       : '还没有记录。想到什么再写。'}</p>`;
     return;
   }
-  rec.list.innerHTML = state.days.map((group) => `<section class="rec-day">
+  const memory = !hasFilter() && state.memory ? memoryCardHtml(state.memory, state.today) : '';
+  rec.list.innerHTML = memory + state.days.map((group) => `<section class="rec-day">
       <h2 class="rec-day-head"><span>${esc(dayHeading(group.localDate, state.today))}</span><span class="rec-day-n">${group.notes.length} 条</span></h2>
       ${group.notes.map((note) => (rec.confirming === note.id ? noteConfirmHtml(note) : noteRowHtml(note))).join('')}
     </section>`).join('');

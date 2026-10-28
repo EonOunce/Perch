@@ -1257,6 +1257,74 @@ input[type="range"]::-moz-range-thumb {
   overflow-wrap: anywhere;
 }
 
+/* 搜索命中：正文里包 <mark>，标签只在整枚 chip 上亮一下。
+   用的是纸感底色，不是「错误」或「警告」的语义。 */
+.rec-text mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: rgba(189, 151, 95, .28);
+  color: inherit;
+}
+
+.chip.is-hit {
+  border-color: rgba(126, 146, 120, .45);
+  background: var(--sage-wash);
+  color: var(--sage-deep);
+}
+
+/* 冲突副本的轻量标识：不是错误，只说明这句还有另一份正文（§4.5）。 */
+.rec-copy {
+  margin-left: 7px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--t-xs);
+  letter-spacing: 0;
+  color: var(--ink-soft);
+}
+
+.rec-memory-head .rec-copy { margin-left: 5px; }
+
+/* 「以前的一天」：一块旧记录，不是待办——没有按钮、没有计数，也不跟搜索抢位置。 */
+.rec-memory {
+  margin: 9px 0 5px;
+  padding: 8px 11px 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper-deep);
+}
+
+.rec-memory-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--t-xs);
+  letter-spacing: .06em;
+  color: var(--ink-soft);
+}
+
+.rec-memory-date {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* 只露一段：很长的旧记录不该把时间线挤到屏幕外，全文仍在下面那天里。 */
+.rec-memory-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin: 4px 0 0;
+  font-size: var(--t-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rec-memory .note-tags { margin-top: 5px; }
+
 /* 就地确认：第一次点移除只把这一条换成一句话和两个动作。 */
 .rec-item.is-confirm {
   display: flex;

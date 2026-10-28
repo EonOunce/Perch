@@ -156,6 +156,8 @@ pub struct RecordsState {
     /// 当前筛选下有多少条，用来写「N 条」这类中性计数。
     pub shown: usize,
     pub total: usize,
+    /// 「以前的一天」：没有够旧的记录时是 `None`；有筛选时界面不渲染它（§2.5）。
+    pub memory: Option<records::Memory>,
     pub storage_error: Option<String>,
 }
 
@@ -617,6 +619,7 @@ fn manage_row(habit: &Habit, today: &str) -> HabitRow {
 /// 记录视图的一份快照。时间线怎么分组、搜索命中谁、标签怎么排，都是 `perch_core::records` 说的。
 fn build_records(perch: &Perch, query: Option<&str>, tag: Option<&str>) -> RecordsState {
     let data = perch.data();
+    let today = clock::now().date();
     let days = records::timeline(data, query.unwrap_or(""), tag.unwrap_or(""));
     let shown = days.iter().map(|group| group.notes.len()).sum();
     let total = data
@@ -625,7 +628,8 @@ fn build_records(perch: &Perch, query: Option<&str>, tag: Option<&str>) -> Recor
         .filter(|note| !habits::is_tombstoned(data, EntityType::Note, &note.id))
         .count();
     RecordsState {
-        today: clock::now().date(),
+        memory: records::daily_memory(data, &today),
+        today,
         days,
         tags: records::tag_counts(data),
         shown,
