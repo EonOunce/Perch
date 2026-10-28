@@ -41,6 +41,15 @@ pub fn note(args: impl std::fmt::Display) {
     }
 }
 
+/// 没有控制台以后，panic 的默认输出没人看得见；至少让它落进 spike.log。
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        note(format!("[panic] {info}"));
+        previous(info);
+    }));
+}
+
 pub fn stamp() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

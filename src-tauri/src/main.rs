@@ -1,4 +1,5 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// 自启项指向 debug 版时也不弹控制台；所有探针日志照旧写 spike.log。
+#![windows_subsystem = "windows"]
 
 mod autostart;
 mod capture;
@@ -505,6 +506,7 @@ fn probe_shot(label: Option<String>) -> String {
 }
 
 fn main() {
+    probe_log::install_panic_hook();
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             probe_ping,
