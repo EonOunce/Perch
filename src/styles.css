@@ -1914,6 +1914,10 @@ input[type="range"]::-moz-range-thumb {
 .card.is-collapsed #viewRecords,
 .card.is-collapsed #viewStats { display: none; }
 
+/* 折叠档被面板临时撑开时（collapse.js 挂上 has-sheet）长条先让位：
+   它压在遮罩下面点不动，撑高的窗口上半空着一根条比整块留白更怪。 */
+.card.is-collapsed.has-sheet .strip { display: none; }
+
 /* 顶栏与日期栏的空白处是拖动热区；品牌块和日期块本身既是点击目标也能拖。 */
 .card-head,
 .strip-bar { cursor: grab; }

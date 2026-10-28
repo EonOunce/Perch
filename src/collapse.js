@@ -22,8 +22,14 @@ for (const id of [
 
 /* ---------- 折叠 / 展开 ---------- */
 
+/* 面板（`.sheet`）是贴在卡片底部的浮层，折叠那一档只有 169 / 46px 高，装不下它。
+   面板开着的时候把窗口临时撑到今天的档（360×480），关掉回到原来那一档：
+   折叠状态本身不写进设置，她下次看到的还是自己收起的那条。 */
+const cfSheetsOpen = () => [...document.querySelectorAll('.sheet')].some((s) => !s.hidden);
+
 function cfSlot() {
   if (!cf.collapsed) return views.current;
+  if (cfSheetsOpen()) return 'today';
   return cf.rowsShown && cf.actions > 0 ? 'collapsed' : 'bar';
 }
 
@@ -302,6 +308,16 @@ cfBindDrag(cfe.stripBar);
 
 // 长条自己也是一块可翻的区域，淡出提示跟着它算（§8）。
 cfe.stripRows.addEventListener('scroll', updateFade, { passive: true });
+
+/* 面板的开关发生在各自的文件里（about / sync / export / restore / 表单），
+   这里只盯 `hidden` 这一个属性的变化：第一块面板打开时撑开窗口，最后一块关掉时收回去。 */
+const cfSheetWatch = new MutationObserver(() => {
+  cfe.card.classList.toggle('has-sheet', cfSheetsOpen());
+  cfSize();
+});
+for (const sheet of document.querySelectorAll('.sheet')) {
+  cfSheetWatch.observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
+}
 
 /* ---------- 开机 ---------- */
 

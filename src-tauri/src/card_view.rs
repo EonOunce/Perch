@@ -189,6 +189,29 @@ mod tests {
         assert_eq!(size_for("bar"), (360, 46));
     }
 
+    /// 折叠那两档只有 169 / 46px 高，装不下贴在卡片底部的面板浮层——她实测到
+    /// 「收起状态打开同步设置／关于栖迟，整体扁扁的一条，按键 ui 都被挡住了」（2026-10-28）。
+    /// 前端是纯脚本、没有 JS 测试运行器，所以把这条取材顺序钉在源码上。
+    #[test]
+    fn collapsed_slots_yield_to_an_open_sheet() {
+        let js = include_str!("../../src/collapse.js");
+        let body = js
+            .split_once("function cfSlot() {")
+            .map(|(_, rest)| rest.split_once("\n}").map(|(b, _)| b))
+            .flatten()
+            .expect("折叠换档的取材顺序在 cfSlot 里");
+        let sheet = body
+            .find("cfSheetsOpen()")
+            .expect("面板开着时要先换档，不能继续用折叠那两档");
+        let strip = body
+            .find("'collapsed'")
+            .expect("面板关掉后仍然要回到长条那一档");
+        assert!(
+            sheet < strip && body.contains("return 'today'"),
+            "先判有没有开着的面板、借今天那一档（360×480），没有面板才轮到长条／日期栏"
+        );
+    }
+
     /// 锚点补偿只在屏幕中间随便挪；挨着边时宁可让鼠标偏一点，也不能把卡片推到屏外。
     #[test]
     fn the_anchor_shift_stays_inside_the_work_area() {
