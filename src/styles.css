@@ -1659,6 +1659,155 @@ input[type="range"]::-moz-range-thumb {
   color: var(--ink-soft);
 }
 
+/* ---------- 专业视图：默认收起，展开才画折线并列出分段（§6.6） ---------- */
+
+.pro-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--paper-bright);
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+
+.pro-switch i {
+  width: 26px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--paper-deep);
+  box-shadow: inset 0 0 0 1px var(--line);
+  position: relative;
+  transition: background 160ms ease;
+}
+
+.pro-switch i::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--paper-bright);
+  box-shadow: 0 1px 2px rgba(80, 69, 51, .18);
+  transition: transform 160ms ease;
+}
+
+.pro-switch.is-on { color: var(--ink); border-color: var(--sage); background: var(--sage-wash-soft); }
+.pro-switch.is-on i { background: var(--sage); box-shadow: none; }
+.pro-switch.is-on i::after { transform: translateX(10px); }
+
+/* 禁用态只用底色与文字表达（§8）：不整块降透明度，原因写在「关于栖迟 → 标记与分段对比」。 */
+.pro-switch:disabled {
+  color: var(--ink-soft);
+  background: var(--paper-deep);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
+.pro-switch:disabled i { background: var(--paper); }
+
+.pro-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: var(--t-xs);
+  color: var(--ink-soft);
+}
+
+.pro-line-chart { display: block; width: 100%; height: auto; margin-top: 6px; }
+
+.pro-line-chart polyline {
+  fill: none;
+  stroke: var(--pro, var(--sage-deep));
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.pro-line-chart circle { fill: var(--pro, var(--sage-deep)); }
+.pro-line-chart .pro-grid { stroke: var(--line); stroke-width: 1; }
+.pro-line-chart .pro-target { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 4; }
+.pro-line-chart .pro-cut { stroke: var(--clay); stroke-width: 1.2; stroke-dasharray: 2 3; }
+
+.pro-facts {
+  margin: 8px 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+
+.pro-facts b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.pro-seg { margin-top: 8px; }
+
+.pro-seg-row {
+  display: grid;
+  grid-template-columns: 1fr 44px 52px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-sm);
+}
+
+.pro-seg-row:last-child { border-bottom: 0; }
+.pro-seg-row.is-head { padding-top: 0; font-size: var(--t-xs); color: var(--ink-soft); }
+.pro-seg-name { color: var(--ink); overflow-wrap: anywhere; }
+.pro-seg-weeks { color: var(--ink-soft); text-align: right; font-variant-numeric: tabular-nums; }
+.pro-seg-mean { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+
+.pro-markers { margin-top: 10px; }
+
+.pro-markers-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.pro-markers-head h3 {
+  margin: 0;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pro-marker {
+  display: grid;
+  grid-template-columns: 58px 1fr 26px;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  font-size: var(--t-sm);
+}
+
+.pro-marker-date { color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pro-marker-label { color: var(--ink); overflow-wrap: anywhere; }
+.pro-del { width: 26px; height: 26px; }
+
+.pro-form {
+  display: grid;
+  grid-template-columns: 132px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.pro-label {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper-bright);
+  font-size: var(--t-sm);
+}
+
+.pro-form .text-btn { min-height: 28px; padding: 0 4px; }
+
 .time-row {
   display: grid;
   grid-template-columns: 72px 1fr 22px;

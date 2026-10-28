@@ -9,11 +9,11 @@
 use crate::date_boundary::{
     format_instant, local_date, next_week_start, parse_date, week_start, DAY_START_HOUR,
 };
-use crate::goal::push_goal;
+use crate::goal::{self, push_goal};
 use crate::habits::{effective_events, is_archived, is_removed, is_tombstoned};
 use crate::model::{
     CheckinEvent, CheckinStatus, ConfirmationTiming, DailyMood, Data, EntityType, GoalEntry, Habit,
-    Note, TargetMode, Tombstone,
+    Marker, Note, TargetMode, Tombstone,
 };
 
 /// 宿主传进来的「此刻」。core 不调系统时钟、不及时区库（DESIGN §5.4）。
@@ -55,6 +55,14 @@ pub enum EditError {
     BadTarget,
     /// 要改的那条不存在（或已带墓碑）。
     NotFound,
+    /// 标记上那句「从这天起改成了什么」是空的（§6.6）。
+    MarkerLabel,
+    /// 标记不能落在还没到的日子。
+    MarkerFuture,
+    /// 标记不能早于习惯自己的第一天；带上那天，提示里能直接说清楚。
+    MarkerEarly(String),
+    /// 同一习惯同一天只留一个标记。
+    MarkerExists,
 }
 
 impl EditError {
@@ -70,6 +78,10 @@ impl EditError {
             EditError::BadScore(s) => format!("心情只在 0–100 之间（收到 {s}）"),
             EditError::BadTarget => "每周/每晚/自定义目标需要一个至少为 1 的数字".to_string(),
             EditError::NotFound => "这条记录已经不在了".to_string(),
+            EditError::MarkerLabel => "写一句话，说明从这天起改了什么".to_string(),
+            EditError::MarkerFuture => "还没到的日子不能标记".to_string(),
+            EditError::MarkerEarly(first) => format!("这个习惯最早到 {first}"),
+            EditError::MarkerExists => "这天已经有一个标记了".to_string(),
         }
     }
 }
@@ -340,6 +352,56 @@ pub fn update_note(data: &mut Data, id: &str, text: &str, now: Now) -> Result<()
     note.text = body.to_string();
     note.tags = parse_tags(body);
     note.updated_at = now.stamp();
+    Ok(())
+}
+
+/// 打一个标记（§6.6）：一句「从这天起改成了什么」+ 一个日期。
+///
+/// 只写标记本身，不碰任何打卡事件；一天最多一个，不能早于习惯自己的第一天，也不能标到未来。
+/// 归档的习惯仍可补标记——归档停的是打卡，不改写分析用的历史。
+pub fn add_marker(
+    data: &mut Data,
+    id: &str,
+    habit_id: &str,
+    local_date: &str,
+    label: &str,
+    now: Now,
+) -> Result<(), EditError> {
+    let body = label.trim();
+    if body.is_empty() {
+        return Err(EditError::MarkerLabel);
+    }
+    let habit = find_habit(data, habit_id)?;
+    if is_removed(data, habit) {
+        return Err(EditError::HabitNotFound);
+    }
+    let today = now.date();
+    let day = parse_date(local_date).ok_or_else(|| EditError::BadDate(local_date.to_string()))?;
+    if day > parse_date(&today).unwrap_or(i64::MAX) {
+        return Err(EditError::MarkerFuture);
+    }
+    if let Some(first) = goal::first_day(habit, now.offset_secs) {
+        if local_date < first.as_str() {
+            return Err(EditError::MarkerEarly(first));
+        }
+    }
+    let exists = data.markers.iter().any(|marker| {
+        marker.habit_id == habit_id
+            && marker.local_date == local_date
+            && !is_tombstoned(data, EntityType::Marker, &marker.id)
+    });
+    if exists {
+        return Err(EditError::MarkerExists);
+    }
+    let stamp = now.stamp();
+    data.markers.push(Marker {
+        id: id.to_string(),
+        habit_id: habit_id.to_string(),
+        local_date: local_date.to_string(),
+        label: body.to_string(),
+        created_at: stamp.clone(),
+        updated_at: stamp,
+    });
     Ok(())
 }
 
@@ -1057,6 +1119,79 @@ mod tests {
         assert!(!data.habits[0].stats_visible);
         assert_eq!(
             set_stats_visible(&mut data, "nope", true, now()),
+            Err(EditError::HabitNotFound)
+        );
+    }
+
+    #[test]
+    fn marker_keeps_one_per_habit_per_day_and_never_touches_checkins() {
+        let mut data = one_habit();
+        tap(&mut data, "e1", TODAY, CheckinStatus::Done);
+        add_marker(&mut data, "mk1", "h1", TODAY, "  换回纸质书  ", now()).unwrap();
+        assert_eq!(data.markers[0].label, "换回纸质书");
+        assert_eq!(data.markers[0].habit_id, "h1");
+        assert_eq!(data.markers[0].created_at, "2026-10-26T04:00:00.000+08:00");
+        assert_eq!(data.checkin_events.len(), 1, "标记不改写打卡事件");
+        assert_eq!(
+            add_marker(&mut data, "mk2", "h1", TODAY, "又改一次", now()),
+            Err(EditError::MarkerExists)
+        );
+        assert_eq!(data.markers.len(), 1);
+    }
+
+    #[test]
+    fn marker_rejects_empty_text_future_days_and_days_before_the_habit() {
+        let mut data = one_habit();
+        assert_eq!(
+            add_marker(&mut data, "mk1", "h1", TODAY, "   ", now()),
+            Err(EditError::MarkerLabel)
+        );
+        assert_eq!(
+            add_marker(&mut data, "mk1", "h1", "2026-10-27", "提前打标", now()),
+            Err(EditError::MarkerFuture)
+        );
+        assert_eq!(
+            add_marker(&mut data, "mk1", "h1", "2026-10-25", "早点开始", now()),
+            Err(EditError::MarkerEarly(TODAY.to_string()))
+        );
+        assert_eq!(
+            add_marker(&mut data, "mk1", "h1", "2026-13-01", "哪天", now()),
+            Err(EditError::BadDate("2026-13-01".to_string()))
+        );
+        assert_eq!(
+            add_marker(&mut data, "mk1", "gone", TODAY, "哪天", now()),
+            Err(EditError::HabitNotFound)
+        );
+        assert!(data.markers.is_empty(), "拒绝的都没写进去");
+    }
+
+    #[test]
+    fn a_deleted_marker_frees_its_day_and_archived_habits_still_take_markers() {
+        let mut data = one_habit();
+        add_marker(&mut data, "mk1", "h1", TODAY, "换回纸质书", now()).unwrap();
+        tombstone(&mut data, EntityType::Marker, "mk1", "dev-a", now()).unwrap();
+        add_marker(&mut data, "mk2", "h1", TODAY, "还是纸质书", now()).unwrap();
+        assert_eq!(data.markers.len(), 2, "旧的那条留着，只是带了墓碑");
+
+        set_archived(&mut data, "h1", true, now()).unwrap();
+        let tomorrow = Now {
+            instant_ms: NOW_MS + 86_400_000,
+            offset_secs: CST,
+        };
+        add_marker(
+            &mut data,
+            "mk3",
+            "h1",
+            "2026-10-27",
+            "归档后补一个",
+            tomorrow,
+        )
+        .unwrap();
+
+        let mut removed = one_habit();
+        tombstone(&mut removed, EntityType::Habit, "h1", "dev-a", now()).unwrap();
+        assert_eq!(
+            add_marker(&mut removed, "mk1", "h1", TODAY, "写不进去", now()),
             Err(EditError::HabitNotFound)
         );
     }

@@ -421,6 +421,47 @@ pub fn stats_state(
     })
 }
 
+/// 加一个标记（§6.6）：一句话必填、未来不行、早于习惯创建不行；同一习惯同一天只能有一个活标记。
+/// 句号和习惯的校验都在 `perch_core::edit`，这里只负责带回去新一版统计快照。
+#[tauri::command]
+pub fn marker_add(
+    habit_id: String,
+    local_date: String,
+    label: String,
+    range: String,
+    from: Option<String>,
+    to: Option<String>,
+    habit: Option<String>,
+    state: tauri::State<'_, SharedState>,
+) -> Result<StatsState, String> {
+    commit_stats(&state, range, from, to, habit, move |data| {
+        edit::add_marker(
+            data,
+            &new_id(),
+            &habit_id,
+            &local_date,
+            &label,
+            clock::now(),
+        )
+    })
+}
+
+/// 删标记 = 写标记墓碑（§6.6）：历史点与分段随之重算，打卡事件一个字节都不动。
+#[tauri::command]
+pub fn marker_remove(
+    marker_id: String,
+    range: String,
+    from: Option<String>,
+    to: Option<String>,
+    habit: Option<String>,
+    state: tauri::State<'_, SharedState>,
+) -> Result<StatsState, String> {
+    commit_stats(&state, range, from, to, habit, move |data| {
+        let device = data.device_id.clone();
+        edit::tombstone(data, EntityType::Marker, &marker_id, &device, clock::now()).map(|_| ())
+    })
+}
+
 /// 一次写入 = 一次落盘 + 一份新快照：前端不需要自己猜「改完之后界面该长什么样」。
 fn commit(
     state: &SharedState,
@@ -457,6 +498,27 @@ fn commit_records(
     state.with(|perch| {
         perch.commit(edit_fn)?;
         Ok(build_records(perch, query.as_deref(), tag.as_deref()))
+    })
+}
+
+/// 统计面板的写入（标记）也要带着当前范围回来，否则加完一个标记整屏跳回默认。
+fn commit_stats(
+    state: &SharedState,
+    range: String,
+    from: Option<String>,
+    to: Option<String>,
+    habit: Option<String>,
+    edit_fn: impl FnOnce(&mut Data) -> Result<(), perch_core::EditError>,
+) -> Result<StatsState, String> {
+    state.with(|perch| {
+        perch.commit(edit_fn)?;
+        Ok(build_stats(
+            perch,
+            &range,
+            from.as_deref(),
+            to.as_deref(),
+            habit.as_deref(),
+        ))
     })
 }
 
@@ -1114,6 +1176,29 @@ mod tests {
             inverted.range_error.as_deref(),
             Some("起始日期不能晚于结束日期。")
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 专业视图的字段名同样是前端契约：`src/stats.js` 按 camelCase 读，
+    /// 而且「全部习惯」必须是 `null`——分段对比只对单个习惯成立（§6.6）。
+    #[test]
+    fn only_a_single_habit_gets_the_pro_view_payload() {
+        let (mut perch, dir) = temp_perch("pro");
+        add(&mut perch, "h1", "阅读");
+
+        let all = serde_json::to_value(build_stats(&perch, "30", None, None, None)).unwrap();
+        assert!(all["stats"]["pro"].is_null());
+
+        let one = serde_json::to_value(build_stats(&perch, "30", None, None, Some("h1"))).unwrap();
+        let pro = &one["stats"]["pro"];
+        assert!(pro["weeks"].is_array());
+        assert!(pro["segments"].is_array());
+        assert!(pro["markers"].is_array());
+        assert!(pro["targetRate"].is_number());
+        assert!(pro["latestMean"].is_null(), "没有标记就没有分段均值");
+        assert!(pro["diff"].is_null());
+        assert!(pro.get("volatility").is_some());
+        assert_eq!(pro["segments"].as_array().unwrap().len(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

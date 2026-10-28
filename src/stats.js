@@ -15,8 +15,12 @@ const st = {
   body: document.getElementById('statBody'),
   scroll: document.getElementById('statScroll'),
   view: null,
+  // 最近一版有效快照：专业视图的开关只影响展开/收起，不该再跑一趟后端。
+  snap: null,
   kind: '30',
   scopeId: 'all',
+  // 专业视图默认收起（§6.6“可选”），本次会话里记住展开状态。
+  proOpen: false,
   // 自定义那一行只是被拉开了，还没应用：应用之前屏上仍是上一次的有效范围。
   openCustom: false,
 };
@@ -183,6 +187,124 @@ function moodHtml(view) {
   </section>`;
 }
 
+/* ---------- 专业视图：每周完成率折线 + 标记分段（§6.6，默认收起） ---------- */
+
+// 图内不画文字：刻度、范围和目标虚线都交给下方 HTML 图注（§6.6）。
+const PRO_BOX = { left: 8, right: 462, top: 10, bottom: 118 };
+
+const proPct = (rate) => (rate === null || rate === undefined ? '—' : `${Math.round(rate * 100)}%`);
+
+function proSvg(pro, accent) {
+  const weeks = pro.weeks;
+  const span = PRO_BOX.right - PRO_BOX.left;
+  const x = (index) =>
+    PRO_BOX.left + (weeks.length === 1 ? span / 2 : (index / (weeks.length - 1)) * span);
+  const y = (rate) =>
+    PRO_BOX.bottom - Math.max(0, Math.min(1, rate)) * (PRO_BOX.bottom - PRO_BOX.top);
+  const grid = [0, 0.5, 1]
+    .map((rate) => `<line class="pro-grid" x1="${PRO_BOX.left}" x2="${PRO_BOX.right}" y1="${
+      y(rate).toFixed(1)}" y2="${y(rate).toFixed(1)}"/>`)
+    .join('');
+  const target = pro.targetRate === null ? '' : `<line class="pro-target" x1="${PRO_BOX.left}" x2="${
+    PRO_BOX.right}" y1="${y(pro.targetRate).toFixed(1)}" y2="${y(pro.targetRate).toFixed(1)}"/>`;
+  // 周中打的标记从下一周起算，所以竖线落在“它真正开始生效的那一周”之前，而不是标记那天。
+  const cutX = (date) => {
+    const index = weeks.findIndex((week) => week.start >= date);
+    if (index <= 0) return PRO_BOX.left;
+    if (index === -1) return PRO_BOX.right;
+    return (x(index - 1) + x(index)) / 2;
+  };
+  const cuts = pro.markers
+    .map((marker) => {
+      const cx = cutX(marker.localDate).toFixed(1);
+      return `<line class="pro-cut" x1="${cx}" x2="${cx}" y1="${PRO_BOX.top}" y2="${PRO_BOX.bottom}"/>`;
+    })
+    .join('');
+  const dots = weeks
+    .map((week, index) => `<circle cx="${x(index).toFixed(1)}" cy="${y(week.rate).toFixed(1)}" r="2.6"/>`)
+    .join('');
+  const line = weeks.length > 1
+    ? `<polyline points="${weeks
+        .map((week, index) => `${x(index).toFixed(1)},${y(week.rate).toFixed(1)}`)
+        .join(' ')}"/>`
+    : '';
+  return `<svg class="pro-line-chart" viewBox="0 0 470 128" style="--pro:${accent}" aria-hidden="true">
+    ${grid}${target}${cuts}${line}${dots}
+  </svg>`;
+}
+
+const proMarkerHtml = (marker) => `<div class="pro-marker">
+  <span class="pro-marker-date">${fmtDay(marker.localDate)}</span>
+  <span class="pro-marker-label">${esc(marker.label)}</span>
+  <button class="icon-btn pro-del" type="button" data-marker-del="${esc(marker.id)}"
+      aria-label="删除 ${fmtDay(marker.localDate)} 的标记">
+    <svg class="icon"><use href="#i-x"/></svg>
+  </button>
+</div>`;
+
+const proSegmentHtml = (segment) => `<div class="pro-seg-row">
+  <span class="pro-seg-name">${esc(segment.label)}</span>
+  <span class="pro-seg-weeks">${segment.weeks} 周</span>
+  <span class="pro-seg-mean">${segment.weeks ? proPct(segment.mean) : '—'}</span>
+</div>`;
+
+// 全部是描述性统计：最近一段、较上一段差几个百分点、波动（总体标准差）。
+function proFacts(pro) {
+  const bits = [];
+  if (pro.latestMean !== null) {
+    bits.push(`最近一段 <b>${proPct(pro.latestMean)}</b>`);
+    if (pro.diff !== null) {
+      const points = Math.round(pro.diff * 100);
+      bits.push(`较上一段 ${points >= 0 ? '+' : '−'}${Math.abs(points)} 个百分点`);
+    }
+  }
+  bits.push(`波动 <b>${proPct(pro.volatility)}</b>`);
+  return `<p class="pro-facts">${bits.join(' · ')}</p>`;
+}
+
+function proHtml(view) {
+  const pro = view.pro;
+  const on = Boolean(pro) && st.proOpen;
+  const head = `<div class="zone-head">
+    <h2>专业视图</h2>
+    ${on ? '<span class="pro-badge">描述性</span>' : ''}
+    <button class="pro-switch${on ? ' is-on' : ''}" type="button" data-pro-toggle role="switch"
+        aria-checked="${on}"${pro ? '' : ' disabled aria-label="分段对比，先选一个习惯"'}><i aria-hidden="true"></i><span>分段对比</span></button>
+  </div>`;
+  if (!on) return `<section class="zone stat-panel pro-panel">${head}</section>`;
+
+  const inside = [];
+  if (!pro.weeks.length) {
+    inside.push('<p class="note-empty">这个范围里还没有可统计的日子。</p>');
+  } else {
+    const scope = view.scopeOptions.find((item) => item.id === view.scope);
+    inside.push(proSvg(pro, paletteOf(scope && scope.color)[0]));
+    inside.push(`<p class="vol-caption">每点一周 · 纵轴为该周完成率 0–100%${
+      pro.targetRate === null ? '' : ' · 虚线为每周目标'} · ${fmtDay(pro.weeks[0].start)} – ${
+      fmtDay(pro.weeks[pro.weeks.length - 1].end)}</p>`);
+  }
+  if (pro.segments.length || pro.volatility !== null) inside.push(proFacts(pro));
+  if (pro.segments.length) {
+    inside.push(`<div class="pro-seg">
+      <div class="pro-seg-row is-head"><span>分段</span><span>周数</span><span>均值</span></div>
+      ${pro.segments.map(proSegmentHtml).join('')}
+    </div>`);
+  }
+  inside.push(`<div class="pro-markers">
+    <div class="pro-markers-head"><h3>标记</h3>${
+      pro.markers.length ? `<span class="zone-note">${pro.markers.length} 个</span>` : ''}</div>
+    ${pro.markers.length ? `<div class="pro-marker-list">${pro.markers.map(proMarkerHtml).join('')}</div>` : ''}
+    <form class="pro-form" data-pro-form novalidate>
+      <label class="date-field"><span>从</span><input type="date" name="date" value="${
+        esc(view.today)}" max="${esc(view.today)}" aria-label="标记日期"></label>
+      <input class="pro-label" type="text" name="label" maxlength="60"
+          placeholder="从这天起改成了什么" aria-label="标记内容">
+      <button class="text-btn" type="submit">加标记</button>
+    </form>
+  </div>`);
+  return `<section class="zone stat-panel pro-panel">${head}${inside.join('')}</section>`;
+}
+
 /* ---------- 每周回顾：固定看最近一个完整的周一–周日（§6.5） ---------- */
 
 const reviewHtml = (review) => `<section class="zone stat-panel">
@@ -219,6 +341,7 @@ function paintStats(snap) {
   // 非法范围只换掉那一句就地提示，屏上仍是上一次的有效快照（§6.1）。
   if (!snap.stats) return;
   st.view = snap.stats;
+  st.snap = snap;
   st.kind = snap.stats.range.kind;
   paintTools(st.view);
   st.body.innerHTML = [
@@ -227,20 +350,61 @@ function paintStats(snap) {
     volumeHtml(st.view),
     tagsHtml(st.view.volume),
     moodHtml(st.view),
+    proHtml(st.view),
     reviewHtml(st.view.review),
   ].join('');
   updateFade();
 }
 
-async function syncStats() {
+function statsArgs() {
   const args = { range: st.kind };
   if (st.kind === 'custom') {
     args.from = st.from.value;
     args.to = st.to.value;
   }
   if (st.scopeId !== 'all') args.habit = st.scopeId;
+  return args;
+}
+
+async function syncStats() {
   try {
-    paintStats(await invoke('stats_state', args));
+    paintStats(await invoke('stats_state', statsArgs()));
+  } catch (err) {
+    toast(String(err));
+  }
+}
+
+/* 标记的增删都带着当前范围回去，加完/删完屏上仍是同一个窗口（§6.6）。 */
+async function addMarker(form) {
+  const date = form.elements.date.value;
+  const label = form.elements.label.value.trim();
+  if (!label) {
+    toast('写一句话，说明从这天起改了什么');
+    form.elements.label.focus();
+    return;
+  }
+  if (!date) {
+    toast('选一个日期');
+    form.elements.date.focus();
+    return;
+  }
+  try {
+    paintStats(await invoke('marker_add', {
+      ...statsArgs(),
+      habitId: st.scopeId,
+      localDate: date,
+      label,
+    }));
+    toast('标记已加');
+  } catch (err) {
+    toast(String(err));
+  }
+}
+
+async function removeMarker(id) {
+  try {
+    paintStats(await invoke('marker_remove', { ...statsArgs(), markerId: id }));
+    toast('标记已删除');
   } catch (err) {
     toast(String(err));
   }
@@ -304,7 +468,24 @@ st.body.addEventListener('click', (event) => {
     openExport('review');
     return;
   }
+  if (event.target.closest('[data-pro-toggle]')) {
+    st.proOpen = !st.proOpen;
+    // 开关只是收起/展开，不重算：最近一版快照原样再摆一遍。
+    if (st.snap) paintStats(st.snap);
+    return;
+  }
+  const del = event.target.closest('[data-marker-del]');
+  if (del) {
+    removeMarker(del.dataset.markerDel);
+    return;
+  }
   if (event.target.closest('[data-act="add"]')) openPanel();
+});
+
+st.body.addEventListener('submit', (event) => {
+  if (!event.target.closest('[data-pro-form]')) return;
+  event.preventDefault();
+  addMarker(event.target);
 });
 
 st.scroll.addEventListener('scroll', updateFade, { passive: true });

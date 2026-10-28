@@ -1,10 +1,8 @@
-//! 统计口径（DESIGN §6.1–§6.5）：范围解析、完成率、热力图格、记录量、心情与每周文字回顾。
+//! 统计口径（DESIGN §6.1–§6.6）：范围解析、完成率、热力图格、记录量、心情、每周文字回顾与专业视图。
 //!
 //! 完成率的分母沿用 [`crate::habits`] 那份「一天一个有效状态」的口径，这里只把它摊到范围上，
 //! 不重新定义第二遍。前端拿到的是已经判好的数字与档位，只负责排版——
 //! 同一个公式如果在 JS 里再算一遍，两端迟早给出两个数（DESIGN §5.4、§5.5）。
-//!
-//! §6.6 的专业视图是 Phase 3，这里没有它。
 
 use std::collections::{HashMap, HashSet};
 
@@ -15,8 +13,11 @@ use crate::date_boundary::{
 };
 use crate::goal::{self, EffectiveGoal};
 use crate::habits::{self, DayStatus};
-use crate::model::{Data, EntityType, Habit, Note, TargetMode};
+use crate::model::{Data, EntityType, Habit, Marker, Note, TargetMode};
 use crate::records::{self, TagCount};
+
+/// §6.6 最早那一段的固定名字；有标记才开始使用。
+pub const UNMARKED_LABEL: &str = "还没标记之前";
 
 /// 一次能看的范围上限。再长下去一格比像素还窄，不如让人分段看。
 pub const MAX_RANGE_DAYS: i64 = 366;
@@ -233,6 +234,69 @@ pub struct Compare {
     pub enough: bool,
 }
 
+/// 专业视图的一周：完成率只算这一周里**已经知道结果**的天数，今天与未来不进分母（§6.2、§6.6）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProPoint {
+    /// 自然周的周一；第一周可能早于统计窗口，`end` 已经裁过。
+    pub start: String,
+    pub end: String,
+    pub done: i64,
+    /// 这一周里已经知道结果的天数。
+    pub days: i64,
+    /// `done / days`，0–1。
+    pub rate: f64,
+}
+
+/// 专业视图的一段：标记把它之后的一周起切成新段（§6.6）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProSegment {
+    /// 标记上的那句话；最早那段固定是「还没标记之前」。
+    pub label: String,
+    /// 这一段起点的标记；`None` = 最早那段。界面靠它删除标记。
+    pub marker_id: Option<String>,
+    /// 标记本身的日期。周中打的标记从下一周起算，所以它可能早于 `from`。
+    pub marker_date: Option<String>,
+    pub from: String,
+    pub to: String,
+    /// 这一段里被画出来的周数；刚打上、还没轮到一周的标记是 0。
+    pub weeks: usize,
+    /// 段内各周完成率的平均值；0 周时为 `None`。
+    pub mean: Option<f64>,
+}
+
+/// 面板里可删除的一个标记。就算它落在所选范围之外、没出现在分段里，也要列出来，
+/// 否则打错字/打错日子的标记在换个范围后就再也删不掉了。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProMarker {
+    pub id: String,
+    pub local_date: String,
+    pub label: String,
+}
+
+/// 专业视图（§6.6）：只对单个习惯开放，所有数字都是描述性的，不出结论。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pro {
+    pub weeks: Vec<ProPoint>,
+    /// 没有标记就不分段——列表只为给人看，不自动划段（§6.6）。
+    pub segments: Vec<ProSegment>,
+    /// 这个习惯所有活着的标记，按日期排序（含范围之外的那些）。
+    pub markers: Vec<ProMarker>,
+    /// 当前生效的每周目标；只记录阶段没有目标。
+    pub target: Option<i32>,
+    /// 目标折成 0–1 的完成率，画成横向虚线；高过 7 的目标放不进 0–100 的纵轴。
+    pub target_rate: Option<f64>,
+    /// 最近一段的均值；没有标记，或最新一段还没凑够一周时是 `None`。
+    pub latest_mean: Option<f64>,
+    /// 最近一段减去上一段（0–1，界面换成百分点）；不足两段时是 `None`。
+    pub diff: Option<f64>,
+    /// 周完成率的总体标准差（0–1）；少于 2 周时是 `None`。
+    pub volatility: Option<f64>,
+}
+
 /// 每周文字回顾（§6.5）：固定看最近一个完整的周一–周日，与统计范围无关。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -267,6 +331,8 @@ pub struct Stats {
     pub mood: Mood,
     /// `None` = 习惯范围是「全部」，不做这个对比。
     pub compare: Option<Compare>,
+    /// `None` = 习惯范围是「全部」；专业视图只对单个习惯开放（§6.6）。
+    pub pro: Option<Pro>,
     pub review: Review,
 }
 
@@ -321,6 +387,8 @@ pub fn stats(data: &Data, today: &str, offset_secs: i32, range: Range, scope: &s
         mood: mood(data, &range),
         // §6.4：习惯范围是「全部」时不做高低完成日对比，跨习惯混合没有解释意义。
         compare: (!is_all).then(|| compare(data, &rows[0], &range, &yesterday)),
+        // §6.6：分段属于具体习惯，跨习惯混合没有解释意义，所以也只对单习惯给。
+        pro: (!is_all).then(|| pro_view(data, &listed[0], &range, today, &yesterday, offset_secs)),
         review: review(data, today, offset_secs),
         today: today.to_string(),
         yesterday,
@@ -775,6 +843,233 @@ fn mood_on(data: &Data, day: &str) -> Option<i32> {
         .map(|m| m.score)
 }
 
+/// 专业视图（§6.6）：统计窗口取「所选范围 ∩ 该习惯的数据起点」，一周一个点，终点到昨天。
+///
+/// 段只有在用户打过标记时才存在；标记落在周中时，它影响的是下一周（一周算不出两半），
+/// 但刚打上、还没轮到一周的标记仍然列出来，否则打完标记的人当场看不到它、也删不掉。
+fn pro_view(
+    data: &Data,
+    habit: &Habit,
+    range: &Range,
+    today: &str,
+    yesterday: &str,
+    offset_secs: i32,
+) -> Pro {
+    let first = goal::first_day(habit, offset_secs);
+    let from = first
+        .as_deref()
+        .filter(|day| *day > range.from.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| range.from.clone());
+    let weeks = pro_weeks(data, &habit.id, &from, &rate_end(range, yesterday));
+    let markers = live_markers(data, &habit.id, today);
+    let cuts_end = if range.to.as_str() < today {
+        range.to.as_str()
+    } else {
+        today
+    };
+    let segments = pro_segments(&weeks, &markers, &from, cuts_end);
+    let marker_rows = markers
+        .iter()
+        .map(|marker| ProMarker {
+            id: marker.id.clone(),
+            local_date: marker.local_date.clone(),
+            label: marker.label.clone(),
+        })
+        .collect();
+    let latest_mean = segments.last().and_then(|segment| segment.mean);
+    let diff = match (segments.len() >= 2, latest_mean) {
+        (true, Some(last)) => segments[segments.len() - 2]
+            .mean
+            .map(|previous| last - previous),
+        _ => None,
+    };
+    let volatility = (weeks.len() >= 2).then(|| {
+        let average = weeks.iter().map(|week| week.rate).sum::<f64>() / weeks.len() as f64;
+        (weeks
+            .iter()
+            .map(|week| (week.rate - average).powi(2))
+            .sum::<f64>()
+            / weeks.len() as f64)
+            .sqrt()
+    });
+    let target = weekly_target_of(&goal::goal_on(
+        habit,
+        &week_start(today).unwrap_or_else(|| today.to_string()),
+    ));
+    Pro {
+        target,
+        target_rate: target
+            .filter(|value| *value <= 7)
+            .map(|value| value as f64 / 7.0),
+        weeks,
+        segments,
+        markers: marker_rows,
+        latest_mean,
+        diff,
+        volatility,
+    }
+}
+
+/// 一周一个点，从窗口起点所在的自然周开始；第一周与最后一周按窗口裁短。
+/// 已经一天都不剩的周（比如今天正好是周一）不画点，不编一个 0%。
+fn pro_weeks(data: &Data, habit_id: &str, from: &str, to: &str) -> Vec<ProPoint> {
+    let Some(mut cursor) = week_start(from) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for _ in 0..MAX_RANGE_DAYS / 7 + 1 {
+        if cursor.as_str() > to {
+            break;
+        }
+        let week_end = add_days(&cursor, 6).unwrap_or_else(|| cursor.clone());
+        let counted_from = cursor.as_str().max(from).to_string();
+        let counted_to = week_end.as_str().min(to).to_string();
+        if let (Some(a), Some(b)) = (parse_date(&counted_from), parse_date(&counted_to)) {
+            let days = b - a + 1;
+            if days > 0 {
+                let done = habits::counts(data, habit_id, &counted_from, &counted_to)
+                    .map(|counts| counts.done)
+                    .unwrap_or(0);
+                out.push(ProPoint {
+                    start: cursor.clone(),
+                    end: counted_to,
+                    done,
+                    days,
+                    rate: done as f64 / days as f64,
+                });
+            }
+        }
+        if week_end.as_str() >= to {
+            break;
+        }
+        cursor = match add_days(&week_end, 1) {
+            Some(next) => next,
+            None => break,
+        };
+    }
+    out
+}
+
+/// 这个习惯的活标记，按日期与 id 排好；未来日期的标记（只可能来自坏数据）不参与。
+fn live_markers<'a>(data: &'a Data, habit_id: &str, today: &str) -> Vec<&'a Marker> {
+    let last = parse_date(today).unwrap_or(i64::MAX);
+    let mut out: Vec<&Marker> = data
+        .markers
+        .iter()
+        .filter(|marker| marker.habit_id == habit_id)
+        .filter(|marker| !habits::is_tombstoned(data, EntityType::Marker, &marker.id))
+        .filter(|marker| parse_date(&marker.local_date).is_some_and(|day| day <= last))
+        .collect();
+    out.sort_by(|a, b| {
+        a.local_date
+            .cmp(&b.local_date)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    out
+}
+
+/// 把周按标记分段。一周归哪一段，看这一周统计窗口的第一天之前最后一个标记；
+/// 窗口起点之前最近的标记决定首段的名字（范围截在标记之后时，不该再叫「还没标记之前」）。
+fn pro_segments(
+    weeks: &[ProPoint],
+    markers: &[&Marker],
+    from: &str,
+    cuts_end: &str,
+) -> Vec<ProSegment> {
+    if weeks.is_empty() {
+        return Vec::new();
+    }
+    let base = markers
+        .iter()
+        .rev()
+        .find(|marker| marker.local_date.as_str() < from);
+    let cuts: Vec<&Marker> = markers
+        .iter()
+        .copied()
+        .filter(|marker| {
+            marker.local_date.as_str() >= from && marker.local_date.as_str() <= cuts_end
+        })
+        .collect();
+    if base.is_none() && cuts.is_empty() {
+        return Vec::new();
+    }
+
+    struct Boundary<'a> {
+        label: &'a str,
+        marker: Option<&'a Marker>,
+        start: &'a str,
+    }
+    let mut boundaries = vec![match base {
+        Some(marker) => Boundary {
+            label: marker.label.as_str(),
+            marker: Some(marker),
+            start: from,
+        },
+        None => Boundary {
+            label: UNMARKED_LABEL,
+            marker: None,
+            start: from,
+        },
+    }];
+    boundaries.extend(cuts.iter().map(|marker| Boundary {
+        label: marker.label.as_str(),
+        marker: Some(marker),
+        start: marker.local_date.as_str(),
+    }));
+
+    let mut owners: Vec<Vec<usize>> = vec![Vec::new(); boundaries.len()];
+    for (index, week) in weeks.iter().enumerate() {
+        let counted_from = week.start.as_str().max(from);
+        let mut owner = 0;
+        for (at, boundary) in boundaries.iter().enumerate() {
+            if boundary.start <= counted_from {
+                owner = at;
+            }
+        }
+        owners[owner].push(index);
+    }
+
+    let mut out = Vec::new();
+    for (index, boundary) in boundaries.iter().enumerate() {
+        let rows = &owners[index];
+        // 「还没标记之前」一周都没有时没有意义；标记段即使还是 0 周也留着。
+        if rows.is_empty() && boundary.marker.is_none() {
+            continue;
+        }
+        let (segment_from, segment_to) = match (rows.first(), rows.last()) {
+            (Some(first), Some(last)) => (
+                weeks[*first].start.as_str().max(from).to_string(),
+                weeks[*last].end.clone(),
+            ),
+            _ => {
+                let stop = boundaries
+                    .get(index + 1)
+                    .and_then(|next| add_days(next.start, -1))
+                    .unwrap_or_else(|| cuts_end.to_string());
+                let stop = if stop.as_str() < boundary.start {
+                    boundary.start.to_string()
+                } else {
+                    stop
+                };
+                (boundary.start.to_string(), stop)
+            }
+        };
+        let mean = (!rows.is_empty())
+            .then(|| rows.iter().map(|at| weeks[*at].rate).sum::<f64>() / rows.len() as f64);
+        out.push(ProSegment {
+            label: boundary.label.to_string(),
+            marker_id: boundary.marker.map(|marker| marker.id.clone()),
+            marker_date: boundary.marker.map(|marker| marker.local_date.clone()),
+            from: segment_from,
+            to: segment_to,
+            weeks: rows.len(),
+            mean,
+        });
+    }
+    out
+}
+
 /// 每周文字回顾（§6.5）：与统计范围无关，固定是最近一个完整的周一–周日。
 ///
 /// 「值得保留的一句话」取这一周里最长的一条记录，同长取更早写下的那条：
@@ -897,7 +1192,8 @@ fn mode_text(mode: TargetMode) -> &'static str {
 mod tests {
     use super::*;
     use crate::model::{
-        CheckinEvent, CheckinStatus, ConfirmationTiming, DailyMood, GoalEntry, Note, Tombstone,
+        CheckinEvent, CheckinStatus, ConfirmationTiming, DailyMood, GoalEntry, Marker, Note,
+        Tombstone,
     };
     use std::collections::HashMap;
 
@@ -965,6 +1261,17 @@ mod tests {
             local_date: day.to_string(),
             score,
             updated_at: format!("{day}T22:00:00.000+08:00"),
+        }
+    }
+
+    fn marker(id: &str, habit_id: &str, day: &str, label: &str) -> Marker {
+        Marker {
+            id: id.to_string(),
+            habit_id: habit_id.to_string(),
+            local_date: day.to_string(),
+            label: label.to_string(),
+            created_at: format!("{day}T09:00:00.000+08:00"),
+            updated_at: format!("{day}T09:00:00.000+08:00"),
         }
     }
 
@@ -1656,5 +1963,266 @@ mod tests {
             "{quote}"
         );
         assert!(!quote.contains(&"一".repeat(41)), "只留 40 字");
+    }
+
+    /// 从 2026-10-05（周一）开始、每天有事件的习惯；周末尾与今天交给各条测试补。
+    fn reading_from_early_october() -> Habit {
+        let mut reading = habit("h1", "阅读", Some(4));
+        reading.created_at = "2026-10-05T09:00:00.000+08:00".to_string();
+        reading
+    }
+
+    #[test]
+    fn pro_view_is_only_for_a_single_habit() {
+        let sample = data(
+            vec![habit("h1", "阅读", Some(4))],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(run(
+            &sample,
+            resolve_range(TODAY, "7", "", "").unwrap(),
+            SCOPE_ALL
+        )
+        .pro
+        .is_none());
+        let pro = run(&sample, resolve_range(TODAY, "7", "", "").unwrap(), "h1")
+            .pro
+            .expect("单习惯才有专业视图");
+        assert_eq!(pro.target, Some(4));
+        assert!((pro.target_rate.unwrap() - 4.0 / 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pro_plots_one_point_per_week_and_stops_at_yesterday() {
+        let mut events = days("h1", "2026-10-05", 3, CheckinStatus::Done);
+        events.extend(days("h1", "2026-10-19", 7, CheckinStatus::Done));
+        events.push(event("h1", "2026-10-26", CheckinStatus::Done));
+        // 今天的完成不进分母，也不该偷偷改写这一周的比例（§6.2）。
+        events.push(event("h1", TODAY, CheckinStatus::Done));
+        let pro = run(
+            &data(
+                vec![reading_from_early_october()],
+                events,
+                Vec::new(),
+                Vec::new(),
+            ),
+            custom("2026-10-05", TODAY),
+            "h1",
+        )
+        .pro
+        .expect("单习惯才有专业视图");
+        let shape: Vec<(&str, i64, i64)> = pro
+            .weeks
+            .iter()
+            .map(|week| (week.start.as_str(), week.done, week.days))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("2026-10-05", 3, 7),
+                ("2026-10-12", 0, 7),
+                ("2026-10-19", 7, 7),
+                ("2026-10-26", 1, 1),
+            ]
+        );
+        assert_eq!(pro.weeks[0].end, "2026-10-11");
+        assert_eq!(pro.weeks[3].end, "2026-10-26");
+        assert!((pro.weeks[0].rate - 3.0 / 7.0).abs() < 1e-9);
+        assert!(pro.segments.is_empty(), "没有标记就不分段（§6.6）");
+    }
+
+    #[test]
+    fn pro_starts_at_the_habit_not_the_range() {
+        let mut late = habit("h1", "阅读", Some(4));
+        late.created_at = "2026-10-14T09:00:00.000+08:00".to_string();
+        let pro = run(
+            &data(vec![late], Vec::new(), Vec::new(), Vec::new()),
+            custom("2026-10-01", TODAY),
+            "h1",
+        )
+        .pro
+        .expect("单习惯才有专业视图");
+        assert_eq!(pro.weeks.len(), 3);
+        assert_eq!(pro.weeks[0].start, "2026-10-12");
+        assert_eq!(pro.weeks[0].end, "2026-10-18");
+        assert_eq!(pro.weeks[0].days, 5, "10-14 起才进这一周");
+        assert_eq!(pro.weeks[2].days, 1, "最后一周只到昨天");
+    }
+
+    #[test]
+    fn pro_splits_at_markers_and_a_midweek_marker_starts_next_week() {
+        let mut events = days("h1", "2026-10-05", 7, CheckinStatus::Done);
+        events.extend(days("h1", "2026-10-12", 7, CheckinStatus::Done));
+        events.extend(days("h1", "2026-10-19", 4, CheckinStatus::Done));
+        events.extend(days("h1", "2026-10-26", 1, CheckinStatus::Done));
+        let mut sample = data(
+            vec![reading_from_early_october()],
+            events,
+            Vec::new(),
+            Vec::new(),
+        );
+        // 周三打的标记：这一周算不出两半，从下一个周一起算新段。
+        sample
+            .markers
+            .push(marker("mk1", "h1", "2026-10-21", "换到早上"));
+        let pro = run(&sample, custom("2026-10-05", TODAY), "h1")
+            .pro
+            .expect("单习惯才有专业视图");
+        assert_eq!(pro.segments.len(), 2);
+        let before = &pro.segments[0];
+        assert_eq!(before.label, UNMARKED_LABEL);
+        assert_eq!(before.marker_id, None);
+        assert_eq!(before.weeks, 3);
+        assert_eq!(before.from, "2026-10-05");
+        assert_eq!(before.to, "2026-10-25");
+        assert!((before.mean.unwrap() - (1.0 + 1.0 + 4.0 / 7.0) / 3.0).abs() < 1e-9);
+
+        let after = &pro.segments[1];
+        assert_eq!(after.label, "换到早上");
+        assert_eq!(after.marker_id.as_deref(), Some("mk1"));
+        assert_eq!(after.marker_date.as_deref(), Some("2026-10-21"));
+        assert_eq!(
+            (after.from.as_str(), after.to.as_str()),
+            ("2026-10-26", "2026-10-26")
+        );
+        assert_eq!(after.weeks, 1);
+        assert_eq!(after.mean, Some(1.0));
+
+        assert_eq!(pro.latest_mean, Some(1.0));
+        assert!((pro.diff.unwrap() - (1.0 - (1.0 + 1.0 + 4.0 / 7.0) / 3.0)).abs() < 1e-9);
+        assert_eq!(
+            pro.segments.iter().map(|s| s.weeks).sum::<usize>(),
+            pro.weeks.len(),
+            "每一周恰好归一段"
+        );
+    }
+
+    #[test]
+    fn a_marker_on_the_first_counted_day_owns_that_partial_week() {
+        let mut late = habit("h1", "阅读", Some(4));
+        late.created_at = "2026-10-21T09:00:00.000+08:00".to_string();
+        let mut sample = data(vec![late], Vec::new(), Vec::new(), Vec::new());
+        sample
+            .markers
+            .push(marker("mk1", "h1", "2026-10-21", "从这天起"));
+        let pro = run(&sample, custom("2026-10-21", TODAY), "h1")
+            .pro
+            .expect("单习惯才有专业视图");
+        // 窗口从标记当天开始：第一周只统计 10-21 之后，整周归新段；不再画空的首段。
+        assert_eq!(pro.segments.len(), 1);
+        assert_eq!(pro.segments[0].label, "从这天起");
+        assert_eq!(pro.segments[0].weeks, 2);
+        assert_eq!(pro.segments[0].from, "2026-10-21");
+    }
+
+    #[test]
+    fn a_fresh_marker_is_listed_before_its_first_week() {
+        let mut sample = data(
+            vec![reading_from_early_october()],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        sample.markers.push(marker("mk1", "h1", TODAY, "今天起"));
+        let pro = run(&sample, resolve_range(TODAY, "30", "", "").unwrap(), "h1")
+            .pro
+            .expect("单习惯才有专业视图");
+        let last = pro.segments.last().expect("刚打的标记也列出来");
+        assert_eq!(last.label, "今天起");
+        assert_eq!(last.weeks, 0);
+        assert_eq!(last.mean, None);
+        assert_eq!(last.from, TODAY);
+        assert_eq!(pro.latest_mean, None, "新的一段还没走完一周");
+        assert_eq!(pro.diff, None);
+    }
+
+    #[test]
+    fn a_marker_before_the_window_names_the_first_segment() {
+        let mut sample = data(
+            vec![habit("h1", "阅读", Some(4))],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        sample
+            .markers
+            .push(marker("mk1", "h1", "2026-10-02", "早先的改变"));
+        let pro = run(&sample, custom("2026-10-05", TODAY), "h1")
+            .pro
+            .expect("单习惯才有专业视图");
+        assert_eq!(pro.segments.len(), 1);
+        assert_eq!(pro.segments[0].label, "早先的改变");
+        assert_eq!(pro.segments[0].marker_date.as_deref(), Some("2026-10-02"));
+        assert_eq!(pro.segments[0].from, "2026-10-05", "段按窗口起点裁");
+    }
+
+    #[test]
+    fn dead_markers_and_other_habits_do_not_cut() {
+        let mut sample = data(
+            vec![habit("h1", "阅读", Some(4)), {
+                let mut other = habit("h2", "散步", Some(3));
+                other.sort_order = 1;
+                other
+            }],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        sample
+            .markers
+            .push(marker("mk1", "h1", "2026-10-15", "删掉的标记"));
+        sample
+            .markers
+            .push(marker("mk2", "h2", "2026-10-16", "别的习惯"));
+        sample.tombstones.push(Tombstone {
+            entity_type: EntityType::Marker,
+            entity_id: "mk1".to_string(),
+            deleted_at: "2026-10-20T22:00:00.000+08:00".to_string(),
+            deleted_by: "pc".to_string(),
+        });
+        let pro = run(&sample, resolve_range(TODAY, "30", "", "").unwrap(), "h1")
+            .pro
+            .expect("单习惯才有专业视图");
+        assert!(pro.segments.is_empty());
+        assert!(pro.markers.is_empty(), "删掉的与别的习惯的都不该列出来");
+    }
+
+    #[test]
+    fn volatility_needs_two_weeks() {
+        let one_week = run(
+            &data(
+                vec![reading_from_early_october()],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            custom("2026-10-26", TODAY),
+            "h1",
+        )
+        .pro
+        .expect("单习惯才有专业视图");
+        assert_eq!(one_week.weeks.len(), 1);
+        assert_eq!(one_week.volatility, None);
+
+        // 第二周只有昨天一天可计，一件没做 → 0%；总体标准差 = sqrt(((1-.5)² + (0-.5)²)/2)。
+        let events = days("h1", "2026-10-19", 7, CheckinStatus::Done);
+        let two_weeks = run(
+            &data(
+                vec![reading_from_early_october()],
+                events,
+                Vec::new(),
+                Vec::new(),
+            ),
+            custom("2026-10-19", TODAY),
+            "h1",
+        )
+        .pro
+        .expect("单习惯才有专业视图");
+        assert!(
+            (two_weeks.volatility.unwrap() - 0.5).abs() < 1e-9,
+            "1 与 0 的总体标准差是 0.5"
+        );
     }
 }

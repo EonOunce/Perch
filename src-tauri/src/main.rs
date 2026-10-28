@@ -532,6 +532,8 @@ fn main() {
             commands::note_remove,
             commands::note_restore,
             commands::stats_state,
+            commands::marker_add,
+            commands::marker_remove,
             export::export_preview,
             export::export_save,
             export::export_json,
