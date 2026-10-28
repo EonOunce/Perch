@@ -48,6 +48,13 @@ impl Webdav {
             .http_status_as_error(true)
             // MKCOL 不在 ureq 认识的 HTTP 方法表里，默认会被当成拼错的请求拒发。
             .allow_non_standard_methods(true)
+            // ureq 的默认 provider 仍是 rustls；只开 native-tls feature 不选 provider，
+            // 第一次 https 请求就会 panic（本地 http 桩测不到这一层）。
+            .tls_config(
+                ureq::tls::TlsConfig::builder()
+                    .provider(ureq::tls::TlsProvider::NativeTls)
+                    .build(),
+            )
             .build()
             .into();
         Ok(Webdav {
@@ -146,7 +153,9 @@ fn etag_of(response: &Response<Body>) -> Option<String> {
 fn net_error(error: ureq::Error) -> NetError {
     match error {
         ureq::Error::StatusCode(code) => NetError::Other(code),
-        ureq::Error::Tls(_) => NetError::Tls,
+        // ureq 的 TLS 配置错误与 native-tls 的握手失败（证书链、协议）是同一类：
+        // 连接不可信，不能退化成明文重发。底层 IO 与超时已被 ureq 单独保留，不会落到这里。
+        ureq::Error::Tls(_) | ureq::Error::NativeTls(_) => NetError::Tls,
         _ => NetError::Unreachable,
     }
 }
@@ -374,6 +383,18 @@ mod tests {
 
     fn client(stub: &Stub, password: &str) -> Webdav {
         Webdav::new(&stub.base, ACCOUNT, password, true).expect("建客户端")
+    }
+
+    /// ureq 默认 provider 仍是 rustls；只开 native-tls feature 而不选 provider，
+    /// 第一次 https 请求会 panic。本地 http 桩走不到这一层，所以在这里盯住。
+    #[test]
+    fn https_uses_the_windows_tls_stack() {
+        let client =
+            Webdav::new("https://dav.jianguoyun.com/dav", ACCOUNT, PASSWORD, false).unwrap();
+        assert_eq!(
+            client.agent.config().tls_config().provider(),
+            ureq::tls::TlsProvider::NativeTls
+        );
     }
 
     fn note(id: &str, text: &str) -> Note {
