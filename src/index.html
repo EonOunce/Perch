@@ -420,7 +420,7 @@
       <section class="about-section" id="about-build">
         <h4>这个版本</h4>
         <p>栖迟 Perch <span id="aboutVersion">—</span>，Windows 本地版。记录存在这台电脑的 <code>%LOCALAPPDATA%\Perch\data.json</code>，打开同步后会以明文上传到你的坚果云；窗口位置、同步开关等本机设置存在同一目录的 <code>settings.json</code>，同步口令单独存在 <code>credential.bin</code>，这两样都不上传。</p>
-        <p>同步也还在早期：目前只在本机的测试服务上验证过，坚果云真机和两台设备同时用同一账号都还没试。</p>
+        <p>同步已经在坚果云真机上跑通：同一账号的两个数据目录完成了「上传、下载、互相追加」和冲突副本的合并。两台真实设备、同一时刻并发写入的重试分支还没试过。</p>
         <p class="about-acts"><button class="zone-action" id="aboutExport" type="button">导出全部数据（JSON）</button></p>
       </section>
     </section>
