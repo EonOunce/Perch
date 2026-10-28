@@ -179,6 +179,18 @@ impl Syncer {
         persist_state(&self.root, &snapshot);
     }
 
+    /// 恢复本机数据之后调用：旧 ETag 与旧基线描述的是被替换掉的那份数据，留到下一轮
+    /// 会把恢复进来的条目当成「远端已删」的并发修改（§4.4）。其余状态（暂停位、失败计数、
+    /// 上次成功时间）保持不变——恢复数据不代表密码或网络已经修好。
+    pub fn forget_baseline_after_restore(&self) {
+        let mut sig = self.lock();
+        sig.state.etag = None;
+        sig.state.base = None;
+        let snapshot = sig.state.clone();
+        drop(sig);
+        persist_state(&self.root, &snapshot);
+    }
+
     /// 同步成功：基线、ETag、最后成功时间全换成这一份，失败计数清零。
     fn record_success(&self, outcome: &Outcome, seq: u64, now_ms: i64) {
         let mut sig = self.lock();
@@ -761,6 +773,36 @@ mod tests {
 
         fs::write(dir.join(STATE_FILE), "{ 坏了").unwrap();
         assert_eq!(read_state(&dir), SyncState::default());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 恢复数据只该丢掉「对不上号」的 ETag 与基线，不该顺手把密码错误的暂停位也清了。
+    #[test]
+    fn restoring_the_local_data_forgets_only_the_etag_and_baseline() {
+        let dir = temp_dir("restore-baseline");
+        let syncer = Syncer::load(dir.clone());
+        let state = {
+            let mut sig = syncer.lock();
+            sig.state.etag = Some("\"V1\"".to_string());
+            sig.state.base = Some(Data::empty("pc"));
+            sig.state.auto_paused = true;
+            sig.state.consecutive_failures = 2;
+            sig.state.last_synced_at = Some("2026-10-28T12:00:00.000+08:00".to_string());
+            sig.state.clone()
+        };
+        persist_state(&dir, &state);
+
+        syncer.forget_baseline_after_restore();
+
+        let after = read_state(&dir);
+        assert!(after.etag.is_none(), "旧 ETag 对不上恢复后的数据");
+        assert!(after.base.is_none(), "旧基线不能当恢复后数据的共同祖先");
+        assert!(after.auto_paused, "恢复数据不代表密码已经修好");
+        assert_eq!(after.consecutive_failures, 2);
+        assert_eq!(
+            after.last_synced_at.as_deref(),
+            Some("2026-10-28T12:00:00.000+08:00")
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

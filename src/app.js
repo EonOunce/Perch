@@ -25,7 +25,7 @@ const ui = {
 const el = {};
 for (const id of [
   'card', 'scroller',
-  'dateTitle', 'weekLine', 'storageBanner', 'reviewZone',
+  'dateTitle', 'weekLine', 'storageBanner', 'storageBannerText', 'reviewZone',
   'habitList', 'moodBox', 'moodFace', 'moodName', 'moodValue', 'moodSlider',
   'noteInput', 'tagPreview', 'noteSave', 'noteCount', 'noteList',
   'sheet', 'habitForm', 'sheetTitle', 'sheetClose', 'goalHint',
@@ -108,7 +108,8 @@ async function call(command, args) {
 }
 
 function showStorageError(message) {
-  el.storageBanner.textContent = message;
+  // 只换文字，不动整条：提示条里还挂着「从备份恢复」那个入口（§4.7）。
+  el.storageBannerText.textContent = message;
   el.storageBanner.hidden = !message;
   document.body.classList.toggle('is-readonly', Boolean(message));
 }

@@ -107,7 +107,10 @@
             aria-selected="false" data-view="stats">统计</button>
   </nav>
 
-  <p class="banner" id="storageBanner" hidden></p>
+  <p class="banner" id="storageBanner" hidden>
+    <span id="storageBannerText"></span>
+    <button class="text-btn banner-restore" id="bannerRestore" type="button">从备份恢复…</button>
+  </p>
 
   <div class="scroller" id="scroller">
     <header class="date-block">
@@ -325,6 +328,55 @@
     </form>
   </div>
 
+  <!-- 恢复（§4.7）：先看清这份里有什么，再确认替换。换之前现在这份会自动留成备份。
+       只读模式下别的写入口都收起了，这一张是唯一的出路——文件坏了，正是要从备份换回来。 -->
+  <div class="sheet restore" id="restoreSheet" hidden>
+    <div class="sheet-body">
+      <div class="sheet-head">
+        <h3>恢复</h3>
+        <button class="icon-btn" id="restoreClose" type="button" aria-label="关闭恢复">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <div class="restore-tabs" id="restoreTabs" role="tablist" aria-label="恢复来源">
+        <button class="is-on" type="button" role="tab" aria-selected="true" data-source="backup">从备份</button>
+        <button type="button" role="tab" aria-selected="false" data-source="file">从文件</button>
+      </div>
+
+      <div class="restore-pane" id="restoreBackupPane">
+        <p class="sheet-hint restore-hint">每次保存前，上一份会留在备份文件夹里，最多 14 份。</p>
+        <div class="restore-list" id="restoreList"></div>
+      </div>
+
+      <div class="restore-pane" id="restoreFilePane" hidden>
+        <p class="sheet-hint restore-hint">选一份用「导出全部数据」存下的 JSON。</p>
+        <button class="restore-pick" id="restorePick" type="button">选择文件…</button>
+      </div>
+
+      <div class="restore-preview" id="restorePreview" hidden>
+        <p class="restore-source" id="restoreSource"></p>
+        <p class="restore-counts" id="restoreCounts"></p>
+        <p class="restore-range" id="restoreRange"></p>
+      </div>
+
+      <p class="restore-state" id="restoreState" hidden role="status" aria-live="polite"></p>
+
+      <div class="restore-askbox" id="restoreAsk" hidden>
+        <p class="restore-ask">用这份数据替换现在电脑上的？现在这份会先留成备份，之后也能找回。</p>
+        <div class="restore-actions">
+          <button class="text-btn" id="restoreThink" type="button">再想想</button>
+          <button class="restore-go" id="restoreGo" type="button">确认恢复</button>
+        </div>
+      </div>
+
+      <div class="sheet-foot" id="restoreFoot">
+        <button class="text-btn" id="restoreCancel" type="button">取消</button>
+        <button class="restore-go" id="restoreNext" type="button" disabled>恢复这份</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 开机自启的首次一问（DESIGN §5.3、§12 #6）：默认关，只问这一次。
        两个答案都算回答；按 Esc 走开不算，下次开机还会问。之后再改走托盘菜单里那一项。 -->
   <div class="sheet" id="askSheet" hidden>
@@ -417,6 +469,16 @@
         <p>折叠和展开点的是同一个地方：顶栏的图标和它旁边的文字整块可点，点一下折叠；折叠后点日期栏上那一块再展开。折叠态右上角的按钮只负责收起或展开下面的长条，不参与折叠。顶栏其余空白处按住即可拖动卡片，挪过 4 像素以上才算拖动，不会误触。</p>
       </section>
 
+      <section class="about-section" id="about-backup">
+        <h4>备份与恢复</h4>
+        <p>每次保存数据之前，栖迟会把上一份留在同一个文件夹的 <code>backups</code> 里，最多保留 14 份，更旧的自动轮换。用「导出全部数据」存下的 JSON 也能拿来恢复。</p>
+        <p>恢复分两步：先看清这份里有多少习惯和记录，再确认替换。替换前现在这份也会留成备份，所以点错了还能退回来。恢复只改这台电脑；开着同步时，下一轮同步会把它和云端那份合并，云端独有的内容仍会回来。版本比这个应用更新的文件不会被读取，也不会改动任何东西。</p>
+        <p class="about-acts">
+          <button class="zone-action restore-entry" id="aboutRestoreBackup" type="button">从备份恢复…</button>
+          <button class="zone-action restore-entry" id="aboutRestoreFile" type="button">从文件恢复…</button>
+        </p>
+      </section>
+
       <section class="about-section" id="about-build">
         <h4>这个版本</h4>
         <p>栖迟 Perch <span id="aboutVersion">—</span>，Windows 本地版。记录存在这台电脑的 <code>%LOCALAPPDATA%\Perch\data.json</code>，打开同步后会以明文上传到你的坚果云；窗口位置、同步开关等本机设置存在同一目录的 <code>settings.json</code>，同步口令单独存在 <code>credential.bin</code>，这两样都不上传。</p>
@@ -506,5 +568,6 @@
 <script src="about.js"></script>
 <script src="sync.js"></script>
 <script src="export.js"></script>
+<script src="restore.js"></script>
 </body>
 </html>

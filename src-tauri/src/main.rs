@@ -10,9 +10,11 @@ mod desktop_layer;
 mod export;
 mod hotkey;
 mod morning;
+mod pick;
 mod place;
 mod probe_log;
 mod quick;
+mod restore;
 mod shell;
 mod store;
 mod sync;
@@ -538,6 +540,11 @@ fn main() {
             export::export_save,
             export::export_json,
             export::export_open_folder,
+            restore::restore_backups,
+            restore::restore_preview_backup,
+            restore::restore_pick_file,
+            restore::restore_apply,
+            restore::restore_cancel,
             commands::prefs_get,
             commands::prefs_set,
             autostart::autostart_set,
@@ -592,6 +599,8 @@ fn main() {
             app.manage(store::SharedPrefs::new(prefs));
             // 同步状态（ETag、基线、失败计数）属于本机设置，不进 data.json、不参与同步（§4.4）。
             app.manage(sync::Syncer::load(store::app_root()?));
+            // 恢复面板选中的那份快照暂存在内存里，等用户二次确认才落盘（§4.7）。
+            app.manage(restore::RestoreStage::default());
             // 界面写下的新记录要叫醒同步线程；同步自己写回的合并结果不走这条钩子（store::apply_merged）。
             {
                 let handle = app.handle().clone();

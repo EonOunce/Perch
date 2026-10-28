@@ -3,11 +3,12 @@
 //! 路径由宿主传进来（core 不 `use tauri`、不碰注册表、不猜 `%LOCALAPPDATA%`），
 //! 时间戳也一样：调用方给「此刻的毫秒 + UTC 偏移秒」，这里只做纯字符串拼名字。
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::date_boundary::{civil_from_days, format_instant, MS_PER_DAY};
+use crate::date_boundary::{civil_from_days, format_instant, parse_date, MS_PER_DAY};
 use crate::model::{Data, SCHEMA_VERSION};
 
 /// 备份保留份数（§4.7）。
@@ -118,7 +119,7 @@ impl Store {
     }
 
     /// 按文件名从新到旧。文件名里的时间戳是定宽零填充，所以字典序就是时间序。
-    fn backup_files(&self) -> Result<Vec<PathBuf>, StorageError> {
+    pub fn backup_files(&self) -> Result<Vec<PathBuf>, StorageError> {
         let dir = self.backups_dir();
         let mut files: Vec<PathBuf> = Vec::new();
         let entries = match fs::read_dir(&dir) {
@@ -156,6 +157,147 @@ fn read_at(path: &Path) -> Result<Data, StorageError> {
     }
     // 比本地旧的版本按当前字段读（V1 还没有迁移分支，将来在 model.rs 旁边加）。
     serde_json::from_value(value).map_err(|e| StorageError::Parse(format!("{path:?}: {e}")))
+}
+
+/// 读一份外来快照：导出的 JSON 或 `backups/` 里的备份，恢复前先过这里。
+///
+/// 比 [`Store::load`] 严一档：`schemaVersion` 必须存在、至少有一个数据数组，
+/// 免得一份随便的 `{}` 被当成「空白快照」把本机数据清掉。
+pub fn parse_snapshot(text: &str, origin: &str) -> Result<Data, StorageError> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| parse_err(origin, e.to_string()))?;
+    let Some(object) = value.as_object() else {
+        return Err(parse_err(origin, "顶层不是 JSON 对象"));
+    };
+    let Some(found) = object.get("schemaVersion").and_then(|v| v.as_u64()) else {
+        return Err(parse_err(origin, "缺少 schemaVersion"));
+    };
+    if found > SCHEMA_VERSION as u64 {
+        return Err(StorageError::SchemaTooNew { found });
+    }
+    const COLLECTIONS: [&str; 6] = [
+        "habits",
+        "markers",
+        "checkinEvents",
+        "notes",
+        "dailyMoods",
+        "tombstones",
+    ];
+    if !COLLECTIONS.iter().any(|key| object.contains_key(*key)) {
+        return Err(parse_err(origin, "没有任何数据数组"));
+    }
+    let data: Data = serde_json::from_value(value).map_err(|e| parse_err(origin, e.to_string()))?;
+    validate_snapshot(&data, origin)?;
+    Ok(data)
+}
+
+fn parse_err(origin: &str, detail: impl std::fmt::Display) -> StorageError {
+    StorageError::Parse(format!("{origin}: {detail}"))
+}
+
+/// 恢复前的结构检查。只挡会让界面或统计算不下去的东西，不替用户判断内容对错。
+fn validate_snapshot(data: &Data, origin: &str) -> Result<(), StorageError> {
+    fn check_ids<'a>(
+        ids: impl Iterator<Item = &'a str>,
+        what: &str,
+        origin: &str,
+    ) -> Result<(), StorageError> {
+        let mut seen = HashSet::new();
+        for id in ids {
+            if id.trim().is_empty() {
+                return Err(parse_err(origin, format!("{what}里有一条没有 id")));
+            }
+            if !seen.insert(id) {
+                return Err(parse_err(origin, format!("{what}里有重复的 id {id}")));
+            }
+        }
+        Ok(())
+    }
+
+    fn check_days<'a>(
+        days: impl Iterator<Item = &'a str>,
+        what: &str,
+        origin: &str,
+    ) -> Result<(), StorageError> {
+        for day in days {
+            if parse_date(day).is_none() {
+                return Err(parse_err(origin, format!("{what}里有认不出的日期 {day:?}")));
+            }
+        }
+        Ok(())
+    }
+
+    check_ids(data.habits.iter().map(|h| h.id.as_str()), "习惯", origin)?;
+    check_ids(data.markers.iter().map(|m| m.id.as_str()), "标记", origin)?;
+    check_ids(
+        data.checkin_events.iter().map(|e| e.id.as_str()),
+        "打卡",
+        origin,
+    )?;
+    check_ids(data.notes.iter().map(|n| n.id.as_str()), "记录", origin)?;
+    check_ids(
+        data.daily_moods.iter().map(|m| m.id.as_str()),
+        "心情",
+        origin,
+    )?;
+
+    check_days(
+        data.markers.iter().map(|m| m.local_date.as_str()),
+        "标记",
+        origin,
+    )?;
+    check_days(
+        data.checkin_events.iter().map(|e| e.local_date.as_str()),
+        "打卡",
+        origin,
+    )?;
+    check_days(
+        data.notes.iter().map(|n| n.local_date.as_str()),
+        "记录",
+        origin,
+    )?;
+    check_days(
+        data.daily_moods.iter().map(|m| m.local_date.as_str()),
+        "心情",
+        origin,
+    )?;
+
+    for habit in &data.habits {
+        if habit.name.trim().is_empty() {
+            return Err(parse_err(origin, format!("习惯 {} 没有名字", habit.id)));
+        }
+        if habit.target_count < 1 {
+            return Err(parse_err(
+                origin,
+                format!("习惯「{}」的目标次数小于 1", habit.name),
+            ));
+        }
+        if let Some(target) = habit.weekly_target {
+            if target < 1 {
+                return Err(parse_err(
+                    origin,
+                    format!("习惯「{}」的每周目标小于 1", habit.name),
+                ));
+            }
+        }
+        for goal in &habit.goal_history {
+            if parse_date(&goal.effective_from).is_none() {
+                return Err(parse_err(
+                    origin,
+                    format!("习惯「{}」的目标生效日认不出", habit.name),
+                ));
+            }
+        }
+    }
+    for mood in &data.daily_moods {
+        if !(0..=100).contains(&mood.score) {
+            return Err(parse_err(
+                origin,
+                format!("心情分数 {} 不在 0–100 之间", mood.score),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// 同目录临时文件 → 落盘 → rename 覆盖。中途失败时原文件一个字节都没被动过。
@@ -428,5 +570,123 @@ mod tests {
             .chars()
             .all(|c| c.is_ascii_digit() || c == '-'));
         assert!(backup_stamp(NOW, CST) < backup_stamp(NOW + 1, CST));
+    }
+
+    fn json_of(data: &Data) -> String {
+        serde_json::to_string(data).unwrap()
+    }
+
+    #[test]
+    fn a_full_snapshot_round_trips_through_the_import_parser() {
+        let mut data = sample("pc-a");
+        data.notes.push(crate::model::Note {
+            id: "n1".to_string(),
+            created_at: "2026-10-20T21:00:00.000+08:00".to_string(),
+            local_date: "2026-10-20".to_string(),
+            text: "一句".to_string(),
+            tags: vec!["书".to_string()],
+            updated_at: "2026-10-20T21:00:00.000+08:00".to_string(),
+            conflict_of: None,
+        });
+        data.daily_moods.push(crate::model::DailyMood {
+            id: "m1".to_string(),
+            local_date: "2026-10-20".to_string(),
+            score: 60,
+            updated_at: "2026-10-20T21:00:00.000+08:00".to_string(),
+        });
+        let parsed = parse_snapshot(&json_of(&data), "导出文件").unwrap();
+        assert_eq!(parsed.habits, data.habits);
+        assert_eq!(parsed.notes, data.notes);
+        assert_eq!(parsed.daily_moods, data.daily_moods);
+    }
+
+    #[test]
+    fn a_snapshot_from_the_future_is_refused() {
+        let mut value: serde_json::Value = serde_json::from_str(&json_of(&sample("pc-a"))).unwrap();
+        value["schemaVersion"] = serde_json::json!(99);
+        assert_eq!(
+            parse_snapshot(&value.to_string(), "导出文件"),
+            Err(StorageError::SchemaTooNew { found: 99 })
+        );
+    }
+
+    #[test]
+    fn arbitrary_json_is_not_a_snapshot() {
+        // 一份空的 `{}` 如果被当成快照，恢复就成了「清空本机数据」。
+        for text in [
+            "{}",
+            r#"{"schemaVersion":1}"#,
+            r#"{"habits":[],"notes":[]}"#,
+            r#"[{"schemaVersion":1}]"#,
+            "不是 JSON",
+        ] {
+            assert!(
+                matches!(
+                    parse_snapshot(text, "别的文件"),
+                    Err(StorageError::Parse(_))
+                ),
+                "{text} 不该被当成栖迟的快照"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_but_complete_snapshot_is_still_valid() {
+        let data = Data::empty("pc-a");
+        let parsed = parse_snapshot(&json_of(&data), "导出文件").unwrap();
+        assert!(parsed.habits.is_empty());
+        assert!(parsed.notes.is_empty());
+    }
+
+    #[test]
+    fn snapshots_with_impossible_values_are_refused() {
+        let mut duplicate = sample("pc-a");
+        duplicate.habits.push(duplicate.habits[0].clone());
+        assert!(matches!(
+            parse_snapshot(&json_of(&duplicate), "导出文件"),
+            Err(StorageError::Parse(_))
+        ));
+
+        let mut mood = sample("pc-a");
+        mood.daily_moods.push(crate::model::DailyMood {
+            id: "m1".to_string(),
+            local_date: "2026-10-20".to_string(),
+            score: 101,
+            updated_at: "2026-10-20T21:00:00.000+08:00".to_string(),
+        });
+        assert!(matches!(
+            parse_snapshot(&json_of(&mood), "导出文件"),
+            Err(StorageError::Parse(_))
+        ));
+
+        let mut bad_day = sample("pc-a");
+        bad_day.checkin_events[0].local_date = "昨天".to_string();
+        assert!(matches!(
+            parse_snapshot(&json_of(&bad_day), "导出文件"),
+            Err(StorageError::Parse(_))
+        ));
+
+        let mut no_name = sample("pc-a");
+        no_name.habits[0].name = "  ".to_string();
+        assert!(matches!(
+            parse_snapshot(&json_of(&no_name), "导出文件"),
+            Err(StorageError::Parse(_))
+        ));
+
+        let mut zero_target = sample("pc-a");
+        zero_target.habits[0].weekly_target = Some(0);
+        assert!(matches!(
+            parse_snapshot(&json_of(&zero_target), "导出文件"),
+            Err(StorageError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn an_older_snapshot_still_imports() {
+        // 旧版本写出的快照缺新字段时按当前默认值读，与 data.json 的规矩一致。
+        let mut value: serde_json::Value = serde_json::from_str(&json_of(&sample("pc-a"))).unwrap();
+        value["schemaVersion"] = serde_json::json!(0);
+        let parsed = parse_snapshot(&value.to_string(), "导出文件").unwrap();
+        assert_eq!(parsed.habits.len(), 1);
     }
 }

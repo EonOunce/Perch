@@ -206,6 +206,31 @@ impl Perch {
         // 故意不触发 on_change：这次写是同步自己产生的，不该再排一次同步。
         Ok(())
     }
+
+    /// 备份文件，从新到旧（恢复面板用）。
+    pub fn backups(&self) -> Result<Vec<PathBuf>, String> {
+        self.store.backup_files().map_err(|err| err.user_message())
+    }
+
+    /// 用一份外来快照替换本机数据（恢复，DESIGN §4.7）。
+    ///
+    /// 这是唯一允许在只读模式里写盘的动作：文件坏了或版本比本应用新，正是需要恢复的时候。
+    /// 现有 `data.json` 仍会先留一份备份（`Store::save` 的规矩），所以这次覆盖本身也能回头。
+    /// 本机 `deviceId` 不变——合并历史里这还是同一台机器。
+    pub fn restore(&mut self, data: Data) -> Result<(), String> {
+        let mut candidate = data;
+        candidate.device_id = self.device_id.clone();
+        let now = clock::now();
+        self.store
+            .save(&candidate, now.instant_ms, now.offset_secs)
+            .map_err(|err| err.user_message())?;
+        self.data = candidate;
+        self.read_only = None;
+        if let Some(notify) = &self.on_change {
+            notify();
+        }
+        Ok(())
+    }
 }
 
 /// Tauri 的托管状态：命令从各个 webview 线程进来，所以要锁。
@@ -640,6 +665,51 @@ mod tests {
             "{ 坏掉的",
             "只读时原文件一个字节都不能动"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 恢复是只读模式下唯一允许写盘的动作：坏文件正是要被替换的那份。
+    /// 替换前仍会把它留进 backups，所以这一步本身也能回头。
+    #[test]
+    fn restore_replaces_a_corrupt_file_and_keeps_it_as_a_backup() {
+        const BROKEN: &str = "{ 这不是 JSON";
+        let dir = temp_dir("restore-broken");
+        fs::write(dir.join("data.json"), BROKEN).unwrap();
+        let mut perch = Perch::open_at(dir.clone()).unwrap();
+        assert!(perch.read_only_reason().is_some());
+
+        let mut snapshot = Data::empty("another-pc");
+        edit::add_note(&mut snapshot, "n1", "恢复回来的一句", NOW).unwrap();
+        perch.restore(snapshot).unwrap();
+
+        assert!(perch.read_only_reason().is_none(), "恢复之后应该能继续写");
+        assert_eq!(perch.data().notes.len(), 1);
+        let on_disk = Store::new(dir.clone()).load().unwrap();
+        assert_eq!(on_disk.notes.len(), 1);
+        assert_eq!(on_disk.notes[0].text, "恢复回来的一句");
+        assert_eq!(on_disk.device_id, perch.device_id(), "恢复不该改本机 ID");
+
+        let backup = Store::new(dir.clone()).latest_backup().unwrap();
+        assert_eq!(
+            fs::read_to_string(backup).unwrap(),
+            BROKEN,
+            "坏文件要留在备份里，不能被静默丢掉"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 恢复也算一次本地改动：开着同步时，下一轮要把恢复后的数据与远端合并。
+    #[test]
+    fn a_restore_notifies_the_sync_thread() {
+        let dir = temp_dir("restore-notify");
+        let mut perch = Perch::open_at(dir.clone()).unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        perch.set_on_change(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        perch.restore(Data::empty("pc")).unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
         let _ = fs::remove_dir_all(dir);
     }
 }
