@@ -1143,6 +1143,9 @@ input[type="range"]::-moz-range-thumb {
   font-size: var(--t-xs);
 }
 
+/* 习惯筛选片前面那颗色点原本紧贴着名字，读起来像「·吃药」；留出与片内文字同量级的间距。 */
+.filter-chip .scope-dot { margin-right: 6px; }
+
 .rec-meta {
   display: flex;
   align-items: center;
