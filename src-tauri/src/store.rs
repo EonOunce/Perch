@@ -7,9 +7,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use perch_core::{Data, EditError, Store};
+use perch_core::{fingerprint, merge, Data, EditError, Store};
 use serde::{Deserialize, Serialize};
 
 use crate::clock;
@@ -17,6 +17,10 @@ use crate::clock;
 /// 应用专用目录名（DESIGN §3.1、§5.1 已定）。
 const APP_DIR: &str = "Perch";
 const SETTINGS_FILE: &str = "settings.json";
+
+/// 坚果云的 WebDAV 根地址（DESIGN §4.1）。本来就是这个；单独写成一项是为了
+/// 本地桩与将来可能的自建服务能改，而不是让人去改代码。
+pub const DEFAULT_SYNC_ENDPOINT: &str = "https://dav.jianguoyun.com/dav/";
 
 /// 设备本地设置。位置、折叠状态与长条收起状态是 §2.8 要求记住的三件事；
 /// 自启两项是 §12 #6 的「默认关、只问一次」；早晨浮出两项是 §2.3 的「每天最多一次、可关」。
@@ -41,6 +45,12 @@ pub struct Settings {
     pub morning_raise_date: Option<String>,
     /// 「关于栖迟」那个入口提示过一次没有（§2.10：只提示一次，不首启强弹）。
     pub about_hinted: bool,
+    /// 自动同步开关。默认关：没登录、没联网也要能把卡片用完（§4.1）。
+    pub sync_enabled: bool,
+    /// 坚果云账号（邮箱）。不是秘密，可以留在这份设置里；应用专用密码走 DPAPI。
+    pub sync_account: String,
+    /// WebDAV 根地址。默认坚果云（[`DEFAULT_SYNC_ENDPOINT`]）；改它是为了本地桩。
+    pub sync_endpoint: String,
 }
 
 impl Default for Settings {
@@ -56,6 +66,9 @@ impl Default for Settings {
             morning_raise: true,
             morning_raise_date: None,
             about_hinted: false,
+            sync_enabled: false,
+            sync_account: String::new(),
+            sync_endpoint: DEFAULT_SYNC_ENDPOINT.to_string(),
         }
     }
 }
@@ -78,6 +91,9 @@ pub struct Perch {
     /// 有些情况下文件不该被覆盖：文件坏了、或它由更新的版本写过。
     /// 非空时界面上显示这句话，所有写入一律拒绝——只读比覆盖一个还能救的文件安全。
     read_only: Option<String>,
+    /// 界面上写下一条记录之后的提醒（同步线程据此记「本地有改动」）。
+    /// 同步自己把合并结果写回来时**不**触发——那是同步产生的写，不该再触发一次同步。
+    on_change: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl Perch {
@@ -101,6 +117,7 @@ impl Perch {
                     data: Data::empty(device_id.clone()),
                     device_id,
                     read_only: Some(err.user_message()),
+                    on_change: None,
                 });
             }
         };
@@ -112,7 +129,13 @@ impl Perch {
             data,
             device_id,
             read_only: None,
+            on_change: None,
         })
+    }
+
+    /// 装上「数据变了」的提醒。只装一次；没装时所有写入与从前一样。
+    pub fn set_on_change(&mut self, notify: Arc<dyn Fn() + Send + Sync>) {
+        self.on_change = Some(notify);
     }
 
     pub fn data(&self) -> &Data {
@@ -152,10 +175,36 @@ impl Perch {
         {
             Ok(()) => {
                 self.data = candidate;
+                if let Some(notify) = &self.on_change {
+                    notify();
+                }
                 Ok(())
             }
             Err(message) => Err(message),
         }
+    }
+
+    /// 同步线程把合并结果写回来（DESIGN §4.4 步骤 3d）。
+    ///
+    /// `incoming` 是引擎算出来的合并结果，基于**发起同步那一刻**的快照。同步要走网络，
+    /// 期间界面完全可能又添了一条——所以这里不直接覆盖，而是拿上次同步的基线再合一次，
+    /// 刚写下的正文一个字都不能丢。内容与现在一致就不写盘：每轮重试都重写会白转一份备份。
+    pub fn apply_merged(&mut self, incoming: &Data, base: Option<&Data>) -> Result<(), String> {
+        if let Some(reason) = &self.read_only {
+            return Err(reason.clone());
+        }
+        let mut candidate = merge::merge(&self.data, incoming, base);
+        candidate.device_id = self.device_id.clone();
+        if fingerprint(&candidate) == fingerprint(&self.data) {
+            return Ok(());
+        }
+        let now = clock::now();
+        self.store
+            .save(&candidate, now.instant_ms, now.offset_secs)
+            .map_err(|err| err.user_message())?;
+        self.data = candidate;
+        // 故意不触发 on_change：这次写是同步自己产生的，不该再排一次同步。
+        Ok(())
     }
 }
 
@@ -289,6 +338,7 @@ mod tests {
     use super::*;
     use perch_core::edit::{self, NewHabit};
     use perch_core::Now;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const NOW: Now = Now {
         instant_ms: 1_792_958_400_000,
@@ -484,6 +534,112 @@ mod tests {
             "写失败时内存里的值也要回到改之前"
         );
         assert_eq!(fs::read_to_string(dir.join("settings.json")).unwrap(), OLD);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 同步的三项设置默认是「关、空账号、坚果云」：没登录也要能把卡片用完（§4.1），
+    /// 而旧版本写下的设置文件缺这三项时不能被当成坏文件。
+    #[test]
+    fn sync_settings_default_to_off_and_jianguoyun() {
+        let dir = temp_dir("sync-defaults");
+        let prefs = Prefs::load(&dir);
+        assert!(!prefs.settings().sync_enabled);
+        assert!(prefs.settings().sync_account.is_empty());
+        assert_eq!(prefs.settings().sync_endpoint, DEFAULT_SYNC_ENDPOINT);
+
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("settings.json"), r#"{"deviceId":"dev-old"}"#).unwrap();
+        let old = Prefs::load(&dir);
+        assert_eq!(old.settings().device_id, "dev-old");
+        assert!(!old.settings().sync_enabled);
+        assert_eq!(old.settings().sync_endpoint, DEFAULT_SYNC_ENDPOINT);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 界面写下一笔之后要告诉同步线程；写失败与「按了没变化」都不算。
+    #[test]
+    fn a_successful_commit_notifies_the_sync_thread() {
+        let dir = temp_dir("notify");
+        let mut perch = Perch::open_at(dir.clone()).unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        perch.set_on_change(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        perch.commit(add_habit("h1", "阅读")).unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        // 写盘失败：数据没变，也不该叫醒同步线程。
+        fs::write(dir.join("backups"), "挡住").unwrap();
+        assert!(perch
+            .commit(|data| edit::add_note(data, "n1", "一句", NOW))
+            .is_err());
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        fs::remove_file(dir.join("backups")).unwrap();
+        // 同步自己写回来的那份不该再触发一次同步。
+        let snapshot = perch.data().clone();
+        perch.apply_merged(&snapshot, None).unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 1, "同步写回不是本地改动");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 同步至少要跑几秒网络；这期间用户又写了一条。引擎拿回来的是**旧快照**的合并结果，
+    /// 直接覆盖就会把刚写下的正文抹掉——这里钉住「先再合一次」。
+    #[test]
+    fn an_edit_made_during_a_sync_survives_the_merge_back() {
+        let dir = temp_dir("merge-back");
+        let mut perch = Perch::open_at(dir.clone()).unwrap();
+        perch
+            .commit(|data| edit::add_note(data, "n1", "原文", NOW))
+            .unwrap();
+
+        let snapshot = perch.data().clone();
+        // 同步正在走网络，用户又写了一条。
+        perch
+            .commit(|data| edit::add_note(data, "n2", "同步期间写的", NOW))
+            .unwrap();
+
+        // 引擎基于旧快照算出合并结果，并带回了另一台设备的一条。
+        let mut incoming = snapshot.clone();
+        edit::add_note(&mut incoming, "n9", "手机上写的", NOW).unwrap();
+        perch.apply_merged(&incoming, Some(&snapshot)).unwrap();
+
+        let on_disk = Store::new(dir.clone()).load().unwrap();
+        let texts: Vec<&str> = on_disk
+            .notes
+            .iter()
+            .map(|note| note.text.as_str())
+            .collect();
+        assert!(texts.contains(&"原文"));
+        assert!(
+            texts.contains(&"同步期间写的"),
+            "同步期间的编辑被旧快照抹掉了"
+        );
+        assert!(texts.contains(&"手机上写的"));
+        assert_eq!(on_disk.device_id, perch.device_id(), "写出去的仍是本机的号");
+
+        // 同一份合并结果再写一次：内容没变就不该重写文件。
+        let before = fs::read(dir.join("data.json")).unwrap();
+        perch.apply_merged(&incoming, Some(&snapshot)).unwrap();
+        assert_eq!(fs::read(dir.join("data.json")).unwrap(), before);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// 只读模式下同步也不能写：文件坏了或版本更该留给人处理。
+    #[test]
+    fn sync_cannot_write_into_a_read_only_store() {
+        let dir = temp_dir("ro-sync");
+        fs::write(dir.join("data.json"), "{ 坏掉的").unwrap();
+        let mut perch = Perch::open_at(dir.clone()).unwrap();
+        assert!(perch.read_only_reason().is_some());
+        assert!(perch.apply_merged(&Data::empty("phone"), None).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.join("data.json")).unwrap(),
+            "{ 坏掉的",
+            "只读时原文件一个字节都不能动"
+        );
         let _ = fs::remove_dir_all(dir);
     }
 }

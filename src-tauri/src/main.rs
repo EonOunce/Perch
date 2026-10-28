@@ -5,6 +5,7 @@ mod capture;
 mod card_view;
 mod clock;
 mod commands;
+mod credential;
 mod desktop_layer;
 mod hotkey;
 mod morning;
@@ -13,6 +14,8 @@ mod probe_log;
 mod quick;
 mod shell;
 mod store;
+mod sync;
+mod webdav;
 
 use std::ffi::c_void;
 use std::sync::{Condvar, Mutex};
@@ -540,7 +543,11 @@ fn main() {
             card_view::probe_place,
             quick::quick_toggle,
             quick::quick_hide,
-            quick::quick_save
+            quick::quick_save,
+            sync::sync_status,
+            sync::sync_now,
+            sync::sync_settings,
+            sync::sync_configure
         ])
         .setup(|app| {
             // 数据打不开就别开这张卡：半死的界面比一句明确的失败更难查。
@@ -572,6 +579,20 @@ fn main() {
                 None => place_bottom_right(&win, desktop_layer::DEFAULT_MARGIN),
             }
             app.manage(store::SharedPrefs::new(prefs));
+            // 同步状态（ETag、基线、失败计数）属于本机设置，不进 data.json、不参与同步（§4.4）。
+            app.manage(sync::Syncer::load(store::app_root()?));
+            // 界面写下的新记录要叫醒同步线程；同步自己写回的合并结果不走这条钩子（store::apply_merged）。
+            {
+                let handle = app.handle().clone();
+                app.state::<store::SharedState>().with(|perch| {
+                    perch.set_on_change(std::sync::Arc::new(move || {
+                        if let Some(syncer) = handle.try_state::<sync::Syncer>() {
+                            syncer.touch();
+                        }
+                    }));
+                    Ok(())
+                })?;
+            }
             app.manage(MoveSignal::new());
             start_position_saver(app.handle());
             spawn_show_watchdog(app.handle());
@@ -606,6 +627,8 @@ fn main() {
             morning::spawn(app.handle());
             // 全局快捷键在自己的线程里收 WM_HOTKEY；注册失败只提示，不影响托盘与卡片里的入口。
             hotkey::spawn(app.handle().clone());
+            // 同步的后台线程：不配也不会空转，它只是睡着等设置或手动请求（§4.3）。
+            sync::spawn(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -617,6 +640,16 @@ fn main() {
             event: tauri::WindowEvent::Moved(_),
             ..
         } if label == "main" => app.state::<MoveSignal>().bump(),
+        // 窗口重新拿到焦点：用户回来了，尽快同步一次；节流仍由同步线程按 §4.3 管。
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Focused(true),
+            ..
+        } if label == "main" => {
+            if let Some(syncer) = app.try_state::<sync::Syncer>() {
+                syncer.soon();
+            }
+        }
         tauri::RunEvent::Exit => {
             flush_position(app);
             probe_log::note("[exit] 退出前还原窗口层级");

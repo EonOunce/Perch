@@ -19,8 +19,10 @@ windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
+    "Win32_Security_Cryptography",
     "Win32_Storage_Xps",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Registry",
     "Win32_System_Time",
     "Win32_UI_HiDpi",
@@ -28,3 +30,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# 同步的 HTTP 客户端。TLS 只用 Windows 自带的 schannel（native-tls）：
+# 不往安装包里再塞一套 rustls，证书校验也跟系统根证书走（DESIGN §4.2）。
+ureq = { version = "3.5.0", default-features = false, features = ["native-tls"] }
+# Basic 认证头用；ureq 已经间接依赖它，这里只是显式写出来。
+base64 = "0.23"
