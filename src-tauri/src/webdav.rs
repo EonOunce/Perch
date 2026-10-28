@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use perch_core::sync::{Condition, NetError, Remote, Transport};
+
+use crate::probe_log;
 use ureq::http::Response;
 use ureq::Body;
 
@@ -88,16 +90,46 @@ impl Transport for Webdav {
             .header("Authorization", self.auth.as_str())
             .call();
         match sent {
-            Ok(response) => read_remote(response),
+            Ok(response) => {
+                probe_log::note(format!(
+                    "[dav] GET {path} → {}，etag={}",
+                    response.status().as_u16(),
+                    etag_of(&response).unwrap_or_else(|| "无".to_string())
+                ));
+                read_remote(response)
+            }
             // 404 是「远端还没有这份快照」，第一次同步的正常起点（§4.4 步骤 2）。
-            Err(ureq::Error::StatusCode(404)) => Ok(Remote::Absent),
-            Err(ureq::Error::StatusCode(code)) => Err(NetError::for_get(code)),
-            Err(error) => Err(net_error(error)),
+            Err(ureq::Error::StatusCode(404)) => {
+                probe_log::note(format!("[dav] GET {path} → 404"));
+                Ok(Remote::Absent)
+            }
+            // 坚果云在父目录还不存在时对 GET 回 409，而不是标准的 404（真机实测）。
+            // GET 不带条件，409 只可能表示这个路径现在取不到；按「远端还没有」处理，
+            // 紧接着的 MKCOL 会把目录补上。若远端其实存在，后面的 PUT 会被条件头挡住，不会覆盖。
+            Err(ureq::Error::StatusCode(409)) => {
+                probe_log::note(format!(
+                    "[dav] GET {path} → 409（父目录缺失，按远端不存在处理）"
+                ));
+                Ok(Remote::Absent)
+            }
+            Err(ureq::Error::StatusCode(code)) => {
+                probe_log::note(format!("[dav] GET {path} → {code}"));
+                Err(NetError::for_get(code))
+            }
+            Err(error) => {
+                probe_log::note(format!("[dav] GET {path} → 传输失败"));
+                Err(net_error(error))
+            }
         }
     }
 
     fn store(&self, path: &str, body: &str, cond: &Condition) -> Result<Option<String>, NetError> {
         let url = self.url(path);
+        let label = match cond {
+            Condition::Absent => "If-None-Match: *",
+            Condition::IfMatch(_) => "If-Match",
+            Condition::Any => "无条件头",
+        };
         let mut request = self
             .agent
             .put(&url)
@@ -106,9 +138,23 @@ impl Transport for Webdav {
             request = request.header(name, value);
         }
         match request.send(body) {
-            Ok(response) => Ok(etag_of(&response)),
-            Err(ureq::Error::StatusCode(code)) => Err(NetError::for_put(code)),
-            Err(error) => Err(net_error(error)),
+            Ok(response) => {
+                let etag = etag_of(&response);
+                probe_log::note(format!(
+                    "[dav] PUT {path}（{label}）→ {}，etag={}",
+                    response.status().as_u16(),
+                    etag.clone().unwrap_or_else(|| "无".to_string())
+                ));
+                Ok(etag)
+            }
+            Err(ureq::Error::StatusCode(code)) => {
+                probe_log::note(format!("[dav] PUT {path}（{label}）→ {code}"));
+                Err(NetError::for_put(code))
+            }
+            Err(error) => {
+                probe_log::note(format!("[dav] PUT {path}（{label}）→ 传输失败"));
+                Err(net_error(error))
+            }
         }
     }
 
@@ -122,9 +168,21 @@ impl Transport for Webdav {
             .body(())
             .map_err(|_| NetError::Unreachable)?;
         match self.agent.run(request) {
-            Ok(response) => NetError::mkcol_outcome(response.status().as_u16()),
-            Err(ureq::Error::StatusCode(code)) => NetError::mkcol_outcome(code),
-            Err(error) => Err(net_error(error)),
+            Ok(response) => {
+                probe_log::note(format!(
+                    "[dav] MKCOL {path} → {}",
+                    response.status().as_u16()
+                ));
+                NetError::mkcol_outcome(response.status().as_u16())
+            }
+            Err(ureq::Error::StatusCode(code)) => {
+                probe_log::note(format!("[dav] MKCOL {path} → {code}"));
+                NetError::mkcol_outcome(code)
+            }
+            Err(error) => {
+                probe_log::note(format!("[dav] MKCOL {path} → 传输失败"));
+                Err(net_error(error))
+            }
         }
     }
 }
@@ -178,6 +236,8 @@ mod stub {
         pub requests: Vec<(String, String)>,
         /// 下一次 PUT 直接回这个状态码（模拟被抢先写），只生效一次。
         pub refuse_put_once: Option<u16>,
+        /// 文件还不存在时对 GET 回 409 而不是 404（坚果云真机行为）。
+        pub conflict_on_missing_get: bool,
     }
 
     pub struct Stub {
@@ -235,6 +295,11 @@ mod stub {
         pub fn refuse_next_put(&self, status: u16) {
             self.cloud.lock().unwrap().refuse_put_once = Some(status);
         }
+
+        /// 模拟坚果云：父目录不存在时 GET 回 409。
+        pub fn conflict_on_missing_get(&self) {
+            self.cloud.lock().unwrap().conflict_on_missing_get = true;
+        }
     }
 
     fn serve(mut stream: TcpStream, cloud: &Arc<Mutex<Cloud>>, authorization: &str) {
@@ -261,6 +326,7 @@ mod stub {
         match method.as_str() {
             "GET" => match (&cloud.snapshot, &cloud.etag) {
                 (Some(body), etag) => respond(&mut stream, 200, etag.as_deref(), body),
+                _ if cloud.conflict_on_missing_get => respond(&mut stream, 409, None, ""),
                 _ => respond(&mut stream, 404, None, ""),
             },
             "MKCOL" => {
@@ -467,6 +533,29 @@ mod tests {
         // 上传的 ETag 必须带回来，下一次覆盖才有条件可用。
         assert_eq!(outcome.state.etag, stub.etag());
         assert!(outcome.state.etag.is_some());
+    }
+
+    #[test]
+    fn a_parent_missing_409_on_get_still_creates_folders_and_uploads() {
+        let stub = Stub::start(auth_header());
+        stub.conflict_on_missing_get();
+        let local = local_with("n1", "409 也算没有");
+        let mut saves = Vec::new();
+        let outcome = run_once(&stub, &local, None, PASSWORD, &mut saves)
+            .expect("409 后应当继续建目录并上传");
+
+        assert!(outcome.uploaded);
+        assert_eq!(
+            stub.requests()
+                .iter()
+                .map(|(m, _)| m.as_str())
+                .collect::<Vec<_>>(),
+            ["GET", "MKCOL", "MKCOL", "PUT"],
+            "409 要被当成「远端还没有」，而不是停在这轮"
+        );
+        let uploaded = stub.body().expect("云上应当有快照");
+        let parsed: Data = serde_json::from_str(&uploaded).unwrap();
+        assert_eq!(parsed.notes[0].text, "409 也算没有");
     }
 
     #[test]
