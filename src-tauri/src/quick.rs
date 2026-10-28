@@ -79,6 +79,10 @@ fn set_visible(app: &AppHandle, win: &WebviewWindow, show: bool) {
     }
     place(app, win);
     let _ = win.show();
+    // 小窗同样是透明 + 圆角窗口，DWM 沿窗口矩形画的那圈直角线会露在圆角外面（与主卡片同一处理）。
+    if let Ok(hwnd) = win.hwnd() {
+        unsafe { crate::desktop_layer::hide_dwm_border(hwnd.0) };
+    }
     let _ = win.set_focus();
 }
 
@@ -151,6 +155,16 @@ mod tests {
                 "{name} 得是 async 命令，否则在主线程上等自己排的任务"
             );
         }
+    }
+
+    /// 小窗也是透明 + 圆角窗口：漏掉 DWM 去边框就会在四周露出一圈直角线（2026-10-28 用户实机看到）。
+    #[test]
+    fn the_quick_window_clears_its_dwm_border() {
+        let src = include_str!("quick.rs");
+        assert!(
+            src.contains("hide_dwm_border"),
+            "小窗每次显示时都要去掉 DWM 那圈直角边框线"
+        );
     }
 
     /// 1920×1080 上：横向正中、纵向在上四分之一处，且整窗都在屏内。
