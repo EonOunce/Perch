@@ -61,7 +61,7 @@ function markHits(text, hits) {
   return html + esc(chars.slice(cursor).join(''));
 }
 
-const tagsHtml = (tags, hits) => (tags.length
+const noteTagsHtml = (tags, hits) => (tags.length
   ? `<div class="note-tags">${tags.map((tag, index) => `<span class="chip${hits && hits[index] ? ' is-hit' : ''}">#${esc(tag)}</span>`).join('')}</div>`
   : '');
 
@@ -77,7 +77,7 @@ const noteRowHtml = (note) => `<div class="rec-item">
       </span>
     </div>
     <p class="rec-text">${markHits(note.text, note.textHits)}</p>
-    ${tagsHtml(note.tags, note.tagHits)}
+    ${noteTagsHtml(note.tags, note.tagHits)}
   </div>`;
 
 /* 「以前的一天」只是一段旧记录，不是待办：没有按钮，筛选时也不出现。
@@ -91,7 +91,7 @@ const memoryDate = (localDate, today) => {
 const memoryCardHtml = (memory, today) => `<section class="rec-memory" aria-label="以前的一天">
     <p class="rec-memory-head"><span>以前的一天${memory.conflict ? '<span class="rec-copy" title="同步冲突副本">副本</span>' : ''}</span><span class="rec-memory-date">${esc(memoryDate(memory.localDate, today))}</span></p>
     <p class="rec-memory-text">${esc(memory.text)}</p>
-    ${tagsHtml(memory.tags)}
+    ${noteTagsHtml(memory.tags)}
   </section>`;
 
 // 移除的第一次点击只把这一条换成就地确认，不弹框、不挡别条（§2.5、§2.9）。
