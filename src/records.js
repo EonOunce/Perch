@@ -214,6 +214,7 @@ async function submitNoteSheet(event) {
 /* ---------- 事件 ---------- */
 
 document.getElementById('recAdd').addEventListener('click', () => openNoteSheet(null));
+document.getElementById('recExport').addEventListener('click', () => openExport('notes'));
 
 rec.list.addEventListener('click', (event) => {
   const hit = (name) => event.target.closest(`[data-${name}]`);

@@ -7,6 +7,7 @@ mod clock;
 mod commands;
 mod credential;
 mod desktop_layer;
+mod export;
 mod hotkey;
 mod morning;
 mod place;
@@ -531,6 +532,10 @@ fn main() {
             commands::note_remove,
             commands::note_restore,
             commands::stats_state,
+            export::export_preview,
+            export::export_save,
+            export::export_json,
+            export::export_open_folder,
             commands::prefs_get,
             commands::prefs_set,
             autostart::autostart_set,

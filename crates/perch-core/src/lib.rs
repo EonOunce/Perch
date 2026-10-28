@@ -10,6 +10,7 @@
 //! - [`habits`]：墓碑 / 归档可见性与「一天一个有效事件」
 //! - [`edit`]：写入侧口径（追加事件、墓碑、标签解析）
 //! - [`records`]：记录时间线的分组、搜索与标签筛选
+//! - [`export`]：记录与每周回顾的 Markdown 导出（DESIGN §2.5、§6.5）
 //! - [`stats`]：范围、完成率、热力图档位、记录量与每周文字回顾（DESIGN §6）
 //! - [`merge`]：同步合并（LWW、墓碑、冲突副本），DESIGN §4.5
 //! - [`sync`]：一次同步的决策与 WebDAV 词汇（DESIGN §4），网络与磁盘由宿主注入
@@ -17,6 +18,7 @@
 
 pub mod date_boundary;
 pub mod edit;
+pub mod export;
 pub mod goal;
 pub mod habits;
 pub mod merge;

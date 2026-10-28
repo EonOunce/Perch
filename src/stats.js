@@ -189,7 +189,8 @@ const reviewHtml = (review) => `<section class="zone stat-panel">
   <div class="zone-head"><h2>每周回顾</h2><span class="zone-note">${
     fmtDay(review.weekStart)} – ${fmtDay(review.weekEnd)}</span></div>
   ${review.lines.length
-    ? review.lines.map((line) => `<p class="rv-line">${esc(line)}</p>`).join('')
+    ? `${review.lines.map((line) => `<p class="rv-line">${esc(line)}</p>`).join('')}
+      <p class="rv-acts"><button class="text-btn" type="button" data-export-review>编辑并导出</button></p>`
     : '<p class="note-empty">那一周还没有记录。</p>'}
 </section>`;
 
@@ -297,6 +298,10 @@ st.body.addEventListener('click', (event) => {
     rec.query = '';
     rec.search.value = '';
     setView('records');
+    return;
+  }
+  if (event.target.closest('[data-export-review]')) {
+    openExport('review');
     return;
   }
   if (event.target.closest('[data-act="add"]')) openPanel();
